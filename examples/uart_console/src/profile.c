@@ -15,6 +15,8 @@
 #include "sm.h"
 #include "trace.h"
 #include "btstack_mt.h"
+#include "ll_api.h"
+#include "bluetooth_hci.h"
 
 #include "uart_console.h"
 #include "gatt_client_util.h"
@@ -47,6 +49,7 @@ bd_addr_t scaned_advertisers[MAX_ADVERTISERS] = {0};
 int advertiser_num = 0;
 int is_targeted_scan = 0;
 uint64_t last_seen = 0;
+static uint16_t custom_mtu = 0;
 
 struct gatt_client_discoverer *discoverer = NULL;
 struct btstack_synced_runner *synced_runner = NULL;
@@ -77,6 +80,12 @@ uint8_t peer_feature_power_control = 0;
 uint8_t peer_feature_subrate = 0;
 uint8_t auto_power_ctrl = 0;
 
+static le_meta_event_vendor_connection_aborted_t aborted = {0};
+uint8_t aborted_received = 0;
+uint8_t peer_addr_type = 0;
+uint8_t reconnecting_after_aborted = 0;
+bd_addr_t peer_addr;
+
 static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t offset,
                                   uint8_t * buffer, uint16_t buffer_size)
 {
@@ -93,6 +102,7 @@ static btstack_packet_callback_registration_t hci_event_callback_registration;
 static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode,
                               uint16_t offset, const uint8_t *buffer, uint16_t buffer_size)
 {
+    platform_printf("ATT Write: handle = %d, size = %d\n", att_handle, buffer_size);
     switch (att_handle)
     {
 
@@ -355,13 +365,14 @@ static void user_msg_handler(uint32_t msg_id, void *data, uint16_t size)
             uint16_t config = GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION;
             char_node_t *c = find_char(size);
             desc_node_t *d = find_config_desc(c);
+            uint8_t reg_cb = (uint8_t)(uintptr_t)data;
             if (NULL == d)
             {
                 iprintf("CHAR/DESC not found: %d\n", size);
                 break;
             }
 
-            if (c->notification == NULL)
+            if (reg_cb && (c->notification == NULL))
             {
                 c->notification = (gatt_client_notification_t *)malloc(sizeof(gatt_client_notification_t));
                 gatt_client_listen_for_characteristic_value_updates(
@@ -483,6 +494,12 @@ void conn_to_slave()
                                               phy_configs);
 }
 
+void set_mtu(uint16_t mtu)
+{
+    custom_mtu = mtu;
+    btstack_config(mtu ? STACK_GATT_CLIENT_DISABLE_MTU_EXCHANGE : 0);
+}
+
 void start_scan(int targeted)
 {
     if (targeted)
@@ -564,9 +581,9 @@ void wor_value_of_char(int handle, block_value_t *value)
     btstack_push_user_msg(USER_MSG_WOR_CHAR, value, (uint16_t)handle);
 }
 
-void sub_to_char(int handle)
+void sub_to_char(int handle, uint8_t reg_cb)
 {
-    btstack_push_user_msg(USER_MSG_SUB_TO_CHAR, NULL, (uint16_t)handle);
+    btstack_push_user_msg(USER_MSG_SUB_TO_CHAR, (void *)(uintptr_t)reg_cb, (uint16_t)handle);
 }
 
 void unsub_to_char(int handle)
@@ -626,6 +643,74 @@ void ble_set_auto_power_control(int enable)
 {
     auto_power_ctrl = enable;
     iprintf("Auto power control %s.\n", enable ? "enabled" : "disabled");
+}
+
+static void abort_connection(void *data, uint16_t value)
+{
+    if (sla_conn_handle != INVALID_HANDLE)
+        ll_conn_abort(sla_conn_handle);
+    else
+    {
+        platform_printf("ERR: a connection (SLAVE role) is needed.\n");
+        return;
+    }
+    reconnecting_after_aborted = 1;
+}
+
+void ble_re_connect(void)
+{
+    btstack_push_user_runnable(abort_connection, NULL, 0);
+}
+
+static void show_bits(const uint32_t v)
+{
+    int i;
+    for (i = 0; i < 32; i++)
+    {
+        if (v & (1u << i))
+            printf("%d, ", i);
+    }
+    printf("\n");
+}
+
+void ble_show_status(void)
+{
+    uint32_t adv_states = 0;
+    uint32_t conn_states = 0;
+    uint32_t sync_states = 0;
+    uint32_t other_states = 0;
+    ll_get_states(&adv_states, &conn_states, &sync_states, &other_states);
+    if ((adv_states | conn_states | sync_states | other_states) == 0)
+    {
+        printf("Controller is IDLE.\n");
+        return;
+    }
+
+    printf("Controller is:\n");
+    if (adv_states != 0)
+    {
+        printf("* Advertising : ");
+        show_bits(adv_states);
+    }
+    if (conn_states != 0)
+    {
+        printf("* Connected   : ");
+        show_bits(conn_states);
+    }
+    if (sync_states != 0)
+    {
+        printf("* Synchronized: ");
+        show_bits(sync_states);
+    }
+    if (other_states & 1)
+    {
+        printf("* Scanning\n");
+    }
+    if (other_states & 2)
+    {
+        printf("* Initiating\n");
+    }
+    printf("\n");
 }
 
 static void demo_synced_gap_apis(struct btstack_synced_runner *runner, void *user_data)
@@ -707,11 +792,15 @@ void ble_sync_gap(void)
 
 void change_conn_param(int interval, int latency, int timeout)
 {
-    interval = conn_param_requst.interval;
-    uint16_t ce_len = (interval << 1) - 2;
+    if (interval > 0) conn_param_requst.interval = interval;
+    if (timeout > 0) conn_param_requst.timeout = timeout;
+    conn_param_requst.latency = latency;
+
+    uint16_t ce_len = (conn_param_requst.interval << 1) - 2;
     mt_gap_update_connection_parameters(
             mas_conn_handle != INVALID_HANDLE ? mas_conn_handle : sla_conn_handle,
-            interval, interval,
+            conn_param_requst.interval,
+            conn_param_requst.interval,
             conn_param_requst.latency,
             conn_param_requst.timeout,
             ce_len, ce_len);
@@ -865,7 +954,7 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
 
         synced_runner = btstack_create_sync_runner(1);
 
-        platform_config(PLATFORM_CFG_LL_LEGACY_ADV_INTERVAL, 1500);
+        ll_legacy_adv_set_interval(1250, 1500);
         ll_set_tx_power_range(-30, 10);
 
         gap_set_random_device_address(sm_persistent.identity_addr);
@@ -886,6 +975,7 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
                                 0x00);                     // Scan_Request_Notification_Enable
         do_set_data();
         gap_set_ext_scan_response_data(0, sizeof(scan_data), (uint8_t*)scan_data);
+        gap_read_white_lists_size();
         break;
 
     case HCI_EVENT_LE_META:
@@ -930,11 +1020,15 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
             }
             break;
         case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE:
+        case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE_V2:
             {
                 const le_meta_event_enh_create_conn_complete_t * complete =
                     decode_hci_le_meta_event(packet, le_meta_event_enh_create_conn_complete_t);
 
                 if (complete->status != 0) break;
+
+                peer_addr_type = complete->peer_addr_type;
+                memcpy(peer_addr, complete->peer_addr, sizeof(peer_addr));
 
                 if (HCI_ROLE_SLAVE == complete->role)
                 {
@@ -947,8 +1041,16 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
                 else
                 {
                     mas_conn_handle = complete->handle;
+                    if (custom_mtu > 0)
+                        gatt_client_exchange_mtu_request(mas_conn_handle, custom_mtu);
                 }
 
+                if (reconnecting_after_aborted)
+                {
+                    reconnecting_after_aborted = 0;
+                    platform_printf("CONN RESUMED.\n");
+                    break;
+                }
 
                 gap_read_remote_version(complete->handle);
             }
@@ -1041,6 +1143,15 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
                                 );
             }
             break;
+        case HCI_SUBEVENT_LE_VENDOR_CONNECTION_ABORTED:
+            {
+                const le_meta_event_vendor_connection_aborted_t *abort =
+                    decode_hci_le_meta_event(packet, le_meta_event_vendor_connection_aborted_t);
+                memcpy(&aborted, abort, sizeof(aborted));
+                aborted_received = 1;
+                platform_printf("[evt]: CONNECTION_ABORTED\n");
+            }
+            break;
         default:
             break;
         }
@@ -1080,6 +1191,38 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
                     discoverer = NULL;
                 }
             }
+
+            if (aborted_received)
+            {
+                bd_addr_t rev_local;
+                aborted_received = 0;
+                reverse_bd_addr(sm_persistent.identity_addr, rev_local);
+
+                ll_create_conn(
+                    aborted.role,
+                    sm_persistent.identity_addr_type | (peer_addr_type << 1), // bit[1] initiator, bit[0] advertiser
+                    rev_local, // const uint8_t *adv_addr,
+                    peer_addr, // const uint8_t *init_addr,
+                    aborted.rx_phy,
+                    aborted.tx_phy,
+                    aborted.access_addr,
+                    aborted.crc_init,
+                    aborted.interval,
+                    aborted.sup_timeout,
+                    aborted.channel_map,
+                    aborted.ch_sel_algo,
+                    aborted.hop_inc,
+                    aborted.last_unmapped_ch,
+                    20, // uint16_t min_ce_len,
+                    20, // uint16_t max_ce_len,
+                    aborted.next_event_time - 20,// uint64_t start_time,
+                    aborted.next_event_counter, // uint16_t event_counter,
+                    aborted.slave_latency,
+                    aborted.sleep_clk_acc,
+                    10, // uint32_t sync_window,
+                    aborted.security_enabled ? &aborted.security : NULL
+                    );
+            }
         }
         break;
 
@@ -1090,6 +1233,15 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
             {
                 platform_printf("COMMAND_COMPLETE: 0x%02x for OPCODE %04X\n",
                     *returns, hci_event_command_complete_get_command_opcode(packet));
+                break;
+            }
+            switch (hci_event_command_complete_get_command_opcode(packet))
+            {
+            case HCI_LE_RD_WLST_SIZE_CMD_OPCODE:
+                platform_printf("Accept List Size: %d\n", returns[1]);
+                break;
+
+            default:
                 break;
             }
         }
@@ -1150,6 +1302,17 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
 
     case GATT_EVENT_MTU:
         iprintf("GATT client MTU updated: %d\n", gatt_event_mtu_get_mtu(packet));
+        break;
+
+    case GATT_EVENT_UNHANDLED_SERVER_VALUE:
+        {
+            iprintf("GATT unhandled server %s: conn = %d, handle = %d\n\t",
+                gatt_event_unhandled_server_value_get_type(packet) == GATT_EVENT_NOTIFICATION ? "notification" : "indication",
+                channel,
+                gatt_event_unhandled_server_value_get_value_handle(packet));
+            printf_hexdump(gatt_event_unhandled_server_value_get_data(packet), gatt_event_unhandled_server_value_get_size(packet));
+            iprintf("\n");
+        }
         break;
 
     case ATT_EVENT_CAN_SEND_NOW:

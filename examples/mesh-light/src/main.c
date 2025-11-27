@@ -12,6 +12,10 @@
 #include "BUTTON_TEST.h"
 #endif
 
+#ifdef ENABLE_LED_TEST
+#include "LED_TEST.h"
+#endif
+
 //-----------------------------------------------------
 // uart config
 #define PRINT_UART          APB_UART0
@@ -59,16 +63,20 @@ void __aeabi_assert(const char *a ,const char* b, int c)
 }
 
 static void uart_gpio_init(void){
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
     SYSCTRL_ClearClkGateMulti(1 << SYSCTRL_ClkGate_APB_UART0);
-    SYSCTRL_ClearClkGateMulti(  (1 << SYSCTRL_ClkGate_APB_GPIO) | 
-                                (1 << SYSCTRL_ClkGate_APB_PWM)  | 
+    SYSCTRL_ClearClkGateMulti(  (1 << SYSCTRL_ClkGate_APB_GPIO) |
+                                (1 << SYSCTRL_ClkGate_APB_PWM)  |
                                 (1 << SYSCTRL_ClkGate_APB_PinCtrl));
-    
+
     PINCTRL_SetPadMux(USER_UART0_IO_RX, IO_SOURCE_GENERAL);
     PINCTRL_SetPadPwmSel(USER_UART0_IO_RX, 0);
     PINCTRL_SetPadMux(USER_UART0_IO_TX, IO_SOURCE_UART0_TXD);
     PINCTRL_Pull(USER_UART0_IO_RX, PINCTRL_PULL_UP);
     PINCTRL_SelUartRxdIn(UART_PORT_0, USER_UART0_IO_RX);
+#else
+    #warning "TODO: Init hardware"
+#endif
 }
 
 void config_uart(uint32_t freq, uint32_t baud)
@@ -98,11 +106,14 @@ void setup_peripherals(void)
 {
     uart_gpio_init();
     config_uart(OSC_CLK_FREQ, PRINT_UART_BAUD);
-    
+
     setup_rgb_led();
 
 #ifdef ENABLE_BUTTON_TEST
     button_test_init();
+#endif
+#ifdef ENABLE_LED_TEST
+    LED_Test_Init();
 #endif
 }
 
@@ -112,7 +123,9 @@ int app_main()
     // If there are *three* crystals on board, *uncomment* below line.
     // Otherwise, below line should be kept commented out.
     // platform_set_rf_clk_source(0);
-    
+
+    platform_config(PLATFORM_CFG_RT_CLK_ACC, 200);
+
     setup_peripherals();
 
     // setup putc handle

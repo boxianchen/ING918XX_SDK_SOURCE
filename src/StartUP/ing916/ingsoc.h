@@ -29,8 +29,8 @@ typedef enum
     PLATFORM_CB_IRQ_TIMER2,
     PLATFORM_CB_IRQ_WDT,
     PLATFORM_CB_IRQ_PDM,
-    PLATFORM_CB_IRQ_AHPSPI,
-    PLATFORM_CB_IRQ_SPI0 = PLATFORM_CB_IRQ_AHPSPI,
+    PLATFORM_CB_IRQ_AHBSPI,
+    PLATFORM_CB_IRQ_SPI0 = PLATFORM_CB_IRQ_AHBSPI,
     PLATFORM_CB_IRQ_APBSPI,
     PLATFORM_CB_IRQ_SPI1 = PLATFORM_CB_IRQ_APBSPI,
     PLATFORM_CB_IRQ_SADC,
@@ -64,8 +64,9 @@ typedef enum
     PLATFORM_CB_IRQ_MAX
 } platform_irq_callback_type_t;
 
-// WARNING: Defined for compatibility with ING918xx. Do not use this.
+// WARNING: Defined for compatibility. Do not use these.
 #define PLATFORM_CB_IRQ_GPIO        PLATFORM_CB_IRQ_GPIO0
+#define PLATFORM_CB_IRQ_AHPSPI      PLATFORM_CB_IRQ_AHBSPI
 
 /* ================================================================================ */
 /* ================      Processor and Core Peripheral Section     ================ */
@@ -468,7 +469,8 @@ typedef struct
     __IO uint32_t      _NOT_USED_4[442];
     __IO uint32_t      UsbDConfig;      //0x0800
     __IO uint32_t      UsbDControl;     //0x0804
-    __IO uint32_t      _NOT_USED_5[2];
+    __IO uint32_t      UsbDStatus;      //0x0808
+    __IO uint32_t      _NOT_USED_5[1];
     __IO uint32_t      UsbDIMask;       //0x0810
     __IO uint32_t      UsbDOMask;       //0x0814
     __IO uint32_t      UsbDInt;         //0x0818

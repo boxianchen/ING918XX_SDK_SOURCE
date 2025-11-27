@@ -269,7 +269,7 @@ uint32_t apSSP_GetIntRawStatus(SSP_TypeDef * SSP_Ptr)
 
 #endif
 
-#if INGCHIPS_FAMILY == INGCHIPS_FAMILY_916
+#if ((INGCHIPS_FAMILY_20 == INGCHIPS_FAMILY) || (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916))
 /*====================================================================*/
 void apSSP_Initialize (SSP_TypeDef *SPI_BASE)
 {
@@ -291,22 +291,68 @@ void apSSP_DeviceParametersSet(SSP_TypeDef *SPI_BASE, apSSP_sDeviceControlBlock 
                           pParam->eLsbMsbOrder      << bsSPI_TRANSFMT_LSB |
                           pParam->eDataSize         << bsSPI_TRANSFMT_DATALEN |
                           pParam->eMasterSlaveMode  << bsSPI_TRANSFMT_SLVMODE |
-                          pParam->eAddrLen          << bsSPI_TRANSFMT_ADDRLEN);
+                          pParam->eAddrLen          << bsSPI_TRANSFMT_ADDRLEN |
+                          pParam->eMOSI_Dir         << bsSPI_TRANSFMT_MOSIBIDIR );
 
     SPI_BASE->TransCtrl = (pParam->eReadWriteMode         << bsSPI_TRANSCTRL_TRANSMODE |
                           pParam->eQuadMode               << bsSPI_TRANSCTRL_DUALQUAD |
-                          ((pParam->eWriteTransCnt)-1)    << bsSPI_TRANSCTRL_WRTRANCNT |
-                          ((pParam->eReadTransCnt)-1)     << bsSPI_TRANSCTRL_RDTRANCNT |
+                          ((pParam->eWriteTransCnt - 1) & 0x1ff) << bsSPI_TRANSCTRL_WRTRANCNT |
+                          ((pParam->eReadTransCnt - 1) & 0x1ff)  << bsSPI_TRANSCTRL_RDTRANCNT |
                           pParam->eAddrEn                 << bsSPI_TRANSCTRL_ADDREN |
                           pParam->eCmdEn                  << bsSPI_TRANSCTRL_CMDEN |
                           pParam->SlaveDataOnly           << bsSPI_TRANSCTRL_SLVDATAONLY);
-  
+
     apSSP_SetTxThres(SPI_BASE, pParam->TxThres);
     apSSP_SetRxThres(SPI_BASE, pParam->RxThres);
     apSSP_SetTimingSclkDiv(SPI_BASE, pParam->eSclkDiv);
     apSSP_IntEnable(SPI_BASE, pParam->eInterruptMask);
 
 }
+
+void apSSP_SetTransMode(SSP_TypeDef *SPI_BASE, SPI_TransCtrl_TransMode_e mode)
+{
+    SPI_BASE->TransCtrl &= (~(BW2M(4) << bsSPI_TRANSCTRL_TRANSMODE));
+    SPI_BASE->TransCtrl |= (mode << bsSPI_TRANSCTRL_TRANSMODE);
+}
+
+void apSSP_SetAddrEn(SSP_TypeDef *SPI_BASE, uint8_t enable)
+{
+    if (enable)
+        SPI_BASE->TransCtrl |= (1 << bsSPI_TRANSCTRL_ADDREN);
+    else
+        SPI_BASE->TransCtrl &= (~(1 << bsSPI_TRANSCTRL_ADDREN));
+}
+
+void apSSP_SetCmdEn(SSP_TypeDef *SPI_BASE, uint8_t enable)
+{
+    if (enable)
+        SPI_BASE->TransCtrl |= (1 << bsSPI_TRANSCTRL_CMDEN);
+    else
+        SPI_BASE->TransCtrl &= (~(1 << bsSPI_TRANSCTRL_CMDEN));
+}
+
+#if (INGCHIPS_FAMILY_20 == INGCHIPS_FAMILY)
+
+void apSSP_WrtEnlargeEn(SSP_TypeDef *SPI_BASE, uint8_t enable)
+{
+    if (enable)
+        SPI_BASE->IntrEn |= (1 << bsSPI_TRANSCTRL_WRENLARGEEN);
+    else
+        SPI_BASE->IntrEn &= (~(1 << bsSPI_TRANSCTRL_WRENLARGEEN));
+}
+
+void apSSP_WrtEnlargeCnt(SSP_TypeDef *SPI_BASE, uint16_t cnt)
+{
+    SPI_BASE->IntrEn &= (~(BW2M(bsSPI_TRANSCTRL_WRENLARGECNT) << bsSPI_TRANSCTRL_WRENLARGECNT));
+    SPI_BASE->IntrEn |= ((0xffff & (cnt-1)) << bsSPI_TRANSCTRL_WRENLARGECNT);
+}
+#endif
+/*====================================================================*/
+uint32_t apSSP_GetStatus(SSP_TypeDef *SPI_BASE)
+{
+    return SPI_BASE->Status;
+}
+
 /*====================================================================*/
 void apSSP_WriteFIFO(SSP_TypeDef *SPI_BASE, uint32_t Data)
 {
@@ -347,6 +393,12 @@ void apSSP_SetTransferControl(SSP_TypeDef *SPI_BASE, uint32_t val, uint32_t shif
     SPI_BASE->TransCtrl |= (val << shift);
 }
 
+void apSSP_SetTransferControlAddrFmt(SSP_TypeDef *SPI_BASE, SPI_TransCtrl_AddrFmt_e fmt)
+{
+    SPI_BASE->TransCtrl &= (~(1 << bsSPI_TRANSCTRL_ADDRFMT));
+    SPI_BASE->TransCtrl |= fmt << bsSPI_TRANSCTRL_ADDRFMT;
+}
+
 /*====================================================================*/
 void apSSP_SetTransferControlWrTranCnt(SSP_TypeDef *SPI_BASE, uint32_t val)
 {
@@ -358,6 +410,12 @@ void apSSP_SetTransferControlRdTranCnt(SSP_TypeDef *SPI_BASE, uint32_t val)
 {
     SPI_BASE->TransCtrl &= (~(BW2M(bwSPI_TRANSCTRL_RDTRANCNT) << bsSPI_TRANSCTRL_RDTRANCNT));
     SPI_BASE->TransCtrl |= ((val-1) << bsSPI_TRANSCTRL_RDTRANCNT);
+}
+
+void apSSP_SetTransferControlDummyCnt(SSP_TypeDef *SPI_BASE, uint8_t cnt)
+{
+    SPI_BASE->TransCtrl &= (~(BW2M(bwSPI_TRANSCTRL_DUMMYCNT) << bsSPI_TRANSCTRL_DUMMYCNT));
+    SPI_BASE->TransCtrl |= (((cnt-1) & BW2M(bwSPI_TRANSCTRL_DUMMYCNT)) << bsSPI_TRANSCTRL_DUMMYCNT);
 }
 
 /*====================================================================*/
@@ -374,7 +432,7 @@ uint32_t apSSP_GetIntRawStatus(SSP_TypeDef *SPI_BASE)
 
 void apSSP_ClearIntStatus(SSP_TypeDef *SPI_BASE, uint32_t val)
 {
-    SPI_BASE->IntrSt |= val;
+    SPI_BASE->IntrSt = val;
 }
 
 /*====================================================================*/
@@ -509,6 +567,14 @@ uint16_t apSSP_GetSlaveTxDataCnt(SSP_TypeDef *SPI_BASE)
 uint16_t apSSP_GetSlaveRxDataCnt(SSP_TypeDef *SPI_BASE)
 {
     return ( ((SPI_BASE->SlvDataCnt >> bsSPI_SLAVE_DATA_COUNT_READ_CNT) & BW2M(bwSPI_SLAVE_DATA_COUNT_READ_CNT)) );
+}
+
+/*====================================================================*/
+
+void apSSP_SetMemAccessCmd(SSP_TypeDef *SPI_BASE, apSSP_sDeviceMemRdCmd cmd)
+{
+    SPI_BASE->MemCtrl &= (~(BW2M(bwSPI_MEMORY_ACCESS_CONTROL_RD_CMD) << bsSPI_MEMORY_ACCESS_CONTROL_RD_CMD));
+    SPI_BASE->MemCtrl |= (cmd << bsSPI_MEMORY_ACCESS_CONTROL_RD_CMD);
 }
 
 #endif

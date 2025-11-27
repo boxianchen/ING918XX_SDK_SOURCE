@@ -18,7 +18,7 @@
 #if (INGCHIPS_FAMILY != INGCHIPS_FAMILY_918)
     #error INGCHIPS_FAMILY conflicts with BOARD_ID
 #endif
-#elif (BOARD_ID == BOARD_DB682AC1A)
+#elif ((BOARD_ID == BOARD_DB682AC1A) || (BOARD_ID == BOARD_DB72C8K1A))
 #if (INGCHIPS_FAMILY != INGCHIPS_FAMILY_916)
     #error INGCHIPS_FAMILY conflicts with BOARD_ID
 #endif
@@ -29,6 +29,8 @@
 #define PIN_RGB_LED   GIO_GPIO_0
 #elif (BOARD_ID == BOARD_DB682AC1A)
 #define PIN_RGB_LED   GIO_GPIO_6
+#elif (BOARD_ID == BOARD_DB72C8K1A)
+#define PIN_RGB_LED   GIO_GPIO_5
 #endif
 #endif
 
@@ -101,11 +103,11 @@ static void ws2881_write(uint32_t value)
 
         if (bit)
         {
-            PWM_SetupSingle(PWM_LED_CHANNEL, 600);
+            PWM_SetupSingle(PWM_LED_CHANNEL, 600); // T1H = ~600NS
         }
         else
         {
-            PWM_SetupSingle(PWM_LED_CHANNEL, 300);
+            PWM_SetupSingle(PWM_LED_CHANNEL, 300); // T0H = ~800NS
         }
     }
     delay(100 * 8);
@@ -116,6 +118,70 @@ void set_rgb_led_color(uint8_t r, uint8_t g, uint8_t b)
     uint32_t cmd = (0x3a << 24) | (b << 16) | (r << 8) | g;
 
     ws2881_write(cmd);
+}
+
+#elif (BOARD_ID == BOARD_DB72C8K1A)
+
+static void PWM_SinglePulseInit(const uint8_t channel_index, uint8_t is_out_a)
+{
+    PWM_Enable(channel_index, 0);
+    PWM_SetPeraThreshold(channel_index, 0);
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
+    PWM_SetMultiDutyCycleCtrl(channel_index, 0);        // do not use multi duty cycles
+#endif
+    PWM_SetHighThreshold(channel_index, 0, 0);
+    PWM_SetMode(channel_index, PWM_WORK_MODE_SINGLE_WITHOUT_DIED_ZONE);
+    if (is_out_a)
+        PWM_SetMask(channel_index, 0, 1);
+    else
+        PWM_SetMask(channel_index, 1, 0);
+    if (!is_out_a)
+        PWM_SetInvertOutput(channel_index, 0, 1);
+}
+
+static void PWM_SinglePulseSend(const uint8_t channel_index, const uint32_t pulse_width)
+{
+    uint32_t pera = PWM_CLOCK_FREQ / (1000000000 / pulse_width);
+    PWM_Enable(channel_index, 0);
+    PWM_SetPeraThreshold(channel_index, pera);
+    PWM_Enable(channel_index, 1);
+}
+
+#define PWM_LED_CHANNEL     0
+#define PWM_IO_SOURCE       IO_SOURCE_PWM0_B
+
+static void ws2881_write(uint32_t value)
+{
+    int8_t i;
+
+    for( i = 0; i < 24; i++ )
+    {
+        uint32_t bit = value & ( 0x00800000 >> i);
+
+        if (bit) // T_DUTY: ~3.7US ( T_DUTY  = T0H+T0L = T1H+T1L )
+        {
+            PWM_SinglePulseSend(PWM_LED_CHANNEL, 800); // T1H = ~800NS
+        }
+        else
+        {
+            PWM_SinglePulseSend(PWM_LED_CHANNEL, 300); // T0H = ~300NS
+        }
+    }
+    delay(100 * 8); // RES(>280US) = ~230US
+}
+
+void set_rgb_led_color(uint8_t r, uint8_t g, uint8_t b)
+{
+    uint32_t cmd = (b << 16) | (r << 8) | g;
+
+    ws2881_write(cmd);
+}
+
+#else
+
+void set_rgb_led_color(uint8_t r, uint8_t g, uint8_t b)
+{
+    platform_printf("TODO: `set_rgb_led_color`\n");
 }
 
 #endif
@@ -138,8 +204,14 @@ void setup_rgb_led()
                              | (1 << SYSCTRL_ClkGate_APB_PWM));
     SYSCTRL_SelectPWMClk(SYSCTRL_CLK_SLOW_DIV_1);
     PINCTRL_SetPadMux(PIN_RGB_LED, IO_SOURCE_PWM0_A);
+#elif(BOARD_ID == BOARD_DB72C8K1A)
+    SYSCTRL_ClearClkGateMulti( (1 << SYSCTRL_ClkGate_APB_PinCtrl)
+                             | (1 << SYSCTRL_ClkGate_APB_PWM));
+    SYSCTRL_SelectPWMClk(SYSCTRL_CLK_SLOW_DIV_1);
+    PINCTRL_SetPadMux(PIN_RGB_LED, PWM_IO_SOURCE);
+    PWM_SinglePulseInit(PWM_LED_CHANNEL, (PWM_IO_SOURCE==IO_SOURCE_PWM0_A) );
 #else
-    #error unknown or unsupported board type
+    #warning "TODO: Init LED according to hardware"
 #endif
    set_rgb_led_color(50, 50, 50);
 }
@@ -290,6 +362,9 @@ float get_temperature()
     symbolbit = reg_data[0] >> 7;
 
     return (float)(4000 + (((symbolbit == 0 ? (temperature_2bytes & 0X7fff) : ((-1) * ((~(temperature_2bytes - 1)) & 0xffff))) * 100) >> 8));
+#else
+    #error unsupported BOARD_ID
+    return 0;
 #endif
 }
 
@@ -353,65 +428,84 @@ uint16_t get_thermo_addr()
 
 //-------------------------------------------------accelerator driver sort-------------------------------------------------
 #ifdef BOARD_USE_ACCEL
-#include "bma2x2.c"
-#include "bma2x2_support.c"
+#if (BOARD_ID == BOARD_ING91881B_02_02_05)
+    #include "bma2x2.c"
+    #include "bma2x2_support.c"
+    typedef struct bma2x2_accel_data accel_data_t;
+    #define accel_power_on      bma2x2_power_on
+    #define accel_get_range     bma2x2_get_range
+    #define accel_read_xyz      bma2x2_read_accel_xyz
+
+    #define ACCEL_NAME          "bma2x2"
+    #define VAL_BIT_WIDTH       14
+
+#elif ((BOARD_ID == BOARD_ING91881B_02_02_06) || (BOARD_ID == BOARD_DB682AC1A))
+    #include "stk8ba58.c"
+    #include "stk8ba58_support.c"
+    typedef struct stk8ba58_accel_data accel_data_t;
+    #define accel_power_on      stk8ba58_power_on
+    #define accel_get_range     stk8ba58_get_range
+    #define accel_read_xyz      stk8ba58_read_accel_xyz
+
+    #define ACCEL_NAME          "stk8ba58"
+    #define VAL_BIT_WIDTH       12
+#else
+    #error unsupported BOARD_ID
+#endif
 
 typedef enum {
-    RANGE_2G = 0x03, //±2g
-    RANGE_4G = 0x05, //±4g
-    RANGE_8G = 0x08, //±8g
-    RANGE_16G = 0x0C, //±16g
+    RANGE_2G = 0x03, //2g
+    RANGE_4G = 0x05, //4g
+    RANGE_8G = 0x08, //8g
+    RANGE_16G = 0x0C, //16g
 } ACCEL_RANGE;
 
-#define ACC_SAMPLING_RATE    (50)
+static float  m_g_range = 2.0;
 
-static struct bma2x2_accel_data sample_xyz = {0};
+/*! Earth's gravity in m/s^2 */
+#define GRAVITY_EARTH  (9.80665f)
 
-extern s32 bma2x2_power_on(void);
-
-static float mg_factor = 0.0;
-
-// mg/LSB
-float get_accel_mg_factor(uint8_t sensor_range)
+static float lsb_to_ms2(int16_t val, float g_range, uint8_t bit_width)
 {
-#if (BOARD_ID == BOARD_ING91881B_02_02_05)
-    return sensor_range == RANGE_2G ? 0.224 :
-                sensor_range == RANGE_4G ? 0.488 :
-                    sensor_range == RANGE_8G ? 0.977 : 1.953;
-#elif ((BOARD_ID == BOARD_ING91881B_02_02_06) || (BOARD_ID == BOARD_DB682AC1A))
-    return sensor_range == RANGE_2G ? 0.98 :
-                sensor_range == RANGE_4G ? 1.95 :  3.91;
-#endif
+    float half_scale = ((float)(1 << bit_width) / 2.0f);
+
+    return (GRAVITY_EARTH * val * g_range) / half_scale;
 }
+
+#define TO_MS2(v) lsb_to_ms2(v, m_g_range, VAL_BIT_WIDTH)
 
 void setup_accelerometer(void)
 {
     uint8_t sensor_range = 0;
-#if (BOARD_ID == BOARD_ING91881B_02_02_05)
-    printf("bma2x2_power_on...");
-#elif ((BOARD_ID == BOARD_ING91881B_02_02_06) || (BOARD_ID == BOARD_DB682AC1A))
-    printf("stk8ba58_power_on...");
-#endif
-    if (bma2x2_power_on()==0)
-        printf("success!!\n");
-    else
-        printf("faild!!\n");
-    bma2x2_get_range(&sensor_range);
-    mg_factor = get_accel_mg_factor(sensor_range);
+    printf("power_on " ACCEL_NAME " ...");
+    printf("%s\n", accel_power_on() == 0 ? "success!!" : "failed!!");
+    accel_get_range(&sensor_range);
+    switch (sensor_range)
+    {
+    case RANGE_4G:
+        m_g_range = 4.0;
+        break;
+    case RANGE_8G:
+        m_g_range = 8.0;
+        break;
+    case RANGE_16G:
+        m_g_range = 16.0;
+        break;
+    default:
+        break;
+    }
 }
 
 void get_acc_xyz(float *x, float *y, float *z)
 {
-    bma2x2_read_accel_xyz(&sample_xyz);
-    *x = sample_xyz.x * mg_factor * 0.001;
-    *y = sample_xyz.y * mg_factor * 0.001;
-    *z = sample_xyz.z * mg_factor * 0.001;
+    accel_data_t sample_xyz;
+    accel_read_xyz(&sample_xyz);
+
+    *x = TO_MS2(sample_xyz.x);
+    *y = TO_MS2(sample_xyz.y);
+    *z = TO_MS2(sample_xyz.z);
 }
 
-uint16_t get_acc_addr()
-{
-    return 0x18;
-}
 #else
 
 void setup_accelerometer(void)
@@ -425,25 +519,28 @@ void get_acc_xyz(float *x, float *y, float *z)
     *z = rand() & 0xf;
 }
 
-uint16_t get_acc_addr()
-{
-    return 0;
-}
 #endif
 
 //-------------------------------------------------buzzer driver sort-------------------------------------------------
 #ifdef BOARD_USE_BUZZER
 
+#define BUZZ_PWM_CH     0
+
+#if ((BOARD_ID == BOARD_ING91881B_02_02_04) || (BOARD_ID == BOARD_ING91881B_02_02_05) || (BOARD_ID == BOARD_ING91881B_02_02_06))
 #define BUZZ_PIN        GIO_GPIO_8
+#elif (BOARD_ID ==  BOARD_DB682AC1A)
+#define BUZZ_PIN        GIO_GPIO_13
+#else
+#define BUZZ_PIN        GIO_GPIO_13
+#endif
 
 void setup_buzzer()
 {
-#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
-    SYSCTRL_ClearClkGateMulti((1 << SYSCTRL_ClkGate_APB_PWM));
-    PINCTRL_SetGeneralPadMode(BUZZ_PIN, IO_MODE_PWM, 4, 0);
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
     SYSCTRL_ClearClkGateMulti( (1 << SYSCTRL_ClkGate_APB_PinCtrl)
-                                    | (1 << SYSCTRL_ClkGate_APB_PWM));
+    | (1 << SYSCTRL_ClkGate_APB_PWM));
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
+    PINCTRL_SetGeneralPadMode(BUZZ_PIN, IO_MODE_PWM, BUZZ_PWM_CH, 0);
+#elif ((INGCHIPS_FAMILY == INGCHIPS_FAMILY_916) || (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20))
     SYSCTRL_SelectPWMClk(SYSCTRL_CLK_32k);
     PINCTRL_SetPadMux(BUZZ_PIN, IO_SOURCE_PWM0_B);
 #else
@@ -453,15 +550,9 @@ void setup_buzzer()
 
 void set_buzzer_freq(uint16_t freq)
 {
-#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
-    PWM_SetupSimple(BUZZ_PIN >> 1, freq, 50);
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
-    PWM_SetupSimple(0, freq, 50);
-#endif
+    PWM_SetupSimple(BUZZ_PWM_CH, freq, 50);
 }
-
 #else
-
 void setup_buzzer()
 {
 }
@@ -480,6 +571,10 @@ void set_buzzer_freq(uint16_t freq)
         GIO_GPIO_1, GIO_GPIO_5, GIO_GPIO_7, GIO_GPIO_4
     };
 #elif (BOARD_ID ==  BOARD_DB682AC1A)
+    const static GIO_Index_t key_pins[] = {
+        GIO_GPIO_6, GIO_GPIO_10, GIO_GPIO_11, GIO_GPIO_9
+    };
+#else
     const static GIO_Index_t key_pins[] = {
         GIO_GPIO_6, GIO_GPIO_10, GIO_GPIO_11, GIO_GPIO_9
     };

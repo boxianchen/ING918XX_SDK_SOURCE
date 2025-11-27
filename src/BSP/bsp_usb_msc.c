@@ -1118,7 +1118,7 @@ static uint32_t bsp_usb_event_handler(USB_EVNET_HANDLER_T *event)
                   case USB_REQUEST_DEVICE_DESCRIPTOR_DEVICE:
                   {
                     size = sizeof(USB_DEVICE_DESCRIPTOR_REAL_T);
-                    size = (setup->wLength < size) ? (setup->wLength) : size;
+                    size = (setup->wLength <= size) ? (setup->wLength) : ((size > USB_EP0_MPS) ? USB_EP0_MPS : size);
 
                     status |= USB_SendData(0, (void*)&DeviceDescriptor, size, 0);
                   }
@@ -1318,10 +1318,10 @@ void bsp_usb_init(void)
 
 void bsp_usb_disable(void)
 {
+    SYSCTRL_USBPhyConfig(BSP_USB_PHY_DISABLE,0);
+    SYSCTRL_ClearClkGateMulti(1 << SYSCTRL_ITEM_APB_USB);
     USB_Close();
     SYSCTRL_SetClkGateMulti(1 << SYSCTRL_ITEM_APB_USB);
-
-    SYSCTRL_USBPhyConfig(BSP_USB_PHY_DISABLE,0);
 }
 
 static void internal_bsp_usb_device_remote_wakeup_stop(void)

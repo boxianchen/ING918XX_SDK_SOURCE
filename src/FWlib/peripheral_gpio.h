@@ -41,7 +41,7 @@ typedef enum
     GIO_GPIO_29 ,
     GIO_GPIO_30 ,
     GIO_GPIO_31 ,
-#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916 || INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
     GIO_GPIO_32 ,
     GIO_GPIO_33 ,
     GIO_GPIO_34 ,
@@ -199,7 +199,7 @@ static __INLINE void GIO_ClearBits(const uint32_t index_mask){ *GPIO_DOC = index
  */
 static __INLINE void GIO_ToggleBits(const uint32_t index_mask){ *GPIO_DOT = index_mask;}
 
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916 || INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
 
 typedef enum
 {
@@ -272,7 +272,7 @@ void GIO_EnableRetentionGroupA(uint8_t enable);
 /**
  * @brief Enable or disable retention of GPIO Group B
  *
- * Group B = All GPIOs - Group A.
+ * Group B = {1-4, 7-17, 24, 25, 29-41}.
  *
  * Once enabled, GPIO configuration (and their value when used as OUTPUT) are
  * all latched and kept even in power saving modes.
@@ -291,7 +291,7 @@ void GIO_EnableRetentionGroupB(uint8_t enable);
  * are kept in HighZ mode even in power saving modes.
  *
  * Note: For USB IOs, there are extra internal pull-down resisters,
- * so the corresponding GPIOs will be affected by them and can be put into
+ * so the corresponding GPIOs will be affected by them and can't be put into
  * High-Z mode actually.
  *
  * After enabled, all other GPIO configuration will not take
@@ -300,6 +300,12 @@ void GIO_EnableRetentionGroupB(uint8_t enable);
  * @param[in] enable    Enable(1)/disable(0)
  */
 void GIO_EnableHighZGroupB(uint8_t enable);
+
+#define GIO_WAKEUP_MODE_LOW_LEVEL       0   // wake up by low level
+#define GIO_WAKEUP_MODE_HIGH_LEVEL      1   // wake up by high level
+#define GIO_WAKEUP_MODE_RISING_EDGE     2   // wake up by rising edge
+#define GIO_WAKEUP_MODE_FALLING_EDGE    3   // wake up by falling edge
+#define GIO_WAKEUP_MODE_ANY_EDGE        4   // wake up by rising or falling edge
 
 /**
  * @brief Enable a GPIO as wakeup source from DEEP SLEEP mode
@@ -313,17 +319,23 @@ void GIO_EnableHighZGroupB(uint8_t enable);
  * 1. Generally, if high level is select, then pull should be DOWN; if low level is select, then
  *    pull should be UP.
  *
+ * 1. When rising and/or falling edge are/is used as wake up mode, the pulse must be
+ *    kept for at least 100us.
+ *
  * 1. `pull` is ignored for GPIO in Group A, for which `pull` shall be configured
  *    by `PINCTRL_Pull(...)`.
  *
+ * 1. `pull` for Group B is a dedicated pull circuit which takes effects simultaneously with
+ *    `PINCTRL_Pull`.
+ *
  * @param[in] io_index          the GPIO ({0-17, 21-25, 29-37})
  * @param[in] enable            Enable(1)/Disable(0)
- * @param[in] level             wake up by high level(1)/low level(0)
+ * @param[in] mode              see `GIO_WAKEUP_MODE_...`
  * @param[in] pull              Pull of the GPIO
  * @return                      0 if successful else non-0
  */
 int GIO_EnableDeepSleepWakeupSource(GIO_Index_t io_index, uint8_t enable,
-        uint8_t level, pinctrl_pull_mode_t pull);
+        uint8_t mode, pinctrl_pull_mode_t pull);
 
 /**
  * @brief Enable a group of GPIOs as wakeup source from DEEPER SLEEP mode
@@ -355,6 +367,12 @@ void GIO_ClearBits(const uint64_t index_mask);
  *
  */
 void GIO_ToggleBits(const uint64_t index_mask);
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+typedef enum
+{
+    GIO_DB_CLK_32K,
+    GIO_DB_CLK_PCLK,
+} GIO_DbClk_t;
 
 #endif
 

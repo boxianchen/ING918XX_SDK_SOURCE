@@ -26,7 +26,10 @@ extern "C" {
 #include "btstack_linked_list.h"
 
 /* API_START */
-
+/*
+ * @brief get address of the private random address update event
+ * @param[in] packet pointer to the event packet
+ */
 const static __INLINE uint8_t * sm_private_random_addr_update_get_address(const uint8_t *packet){
     return decode_event_offset(packet, uint8_t, 2);
 }
@@ -36,8 +39,8 @@ const static __INLINE uint8_t * sm_private_random_addr_update_get_address(const 
  */
 typedef struct sm_persistent
 {
-    sm_key_t        er;
-    sm_key_t        ir;
+    sm_key_t        er;                 // Encryption Root Key
+    sm_key_t        ir;                 // Identity Resolving Key       
     bd_addr_t       identity_addr;      // A public device address or static random address used as identity address
                                         // When privacy is not enabled, this should be the public device address or static random address.
                                         // This should not be changed, once changed, paring is lost
@@ -46,14 +49,19 @@ typedef struct sm_persistent
 
 // Authorization state
 typedef enum {
-    AUTHORIZATION_UNKNOWN,
-    AUTHORIZATION_PENDING,
-    AUTHORIZATION_DECLINED,
-    AUTHORIZATION_GRANTED
+    AUTHORIZATION_UNKNOWN,              // Authorization state is unknown   
+    AUTHORIZATION_PENDING,              // Authorization is pending, waiting for user input
+    AUTHORIZATION_DECLINED,             // Authorization is declined by user
+    AUTHORIZATION_GRANTED               // Authorization is granted by user
 } authorization_state_t;
 
 /**
  * @brief Security configurations
+ *
+ * These configurations can updated dynamically. Be careful: dynamically toggle
+ * `enable` will cause problems when SM is still working on any connection.
+ *
+ * After IRK/DHK are derived from `persistent`, `SM_EVENT_IRK_DHK_RESULT` is emitted.
  *
  * @param[in]   enable              Enable (Bypass) SM (default: Disabled)
  *                                  When disabled, SM can be enabled per connection by `sm_config_conn`.
@@ -61,11 +69,28 @@ typedef enum {
  * @param[in]   request_security    Let peripheral request an encrypted connection right after connecting
  *                                  Not used normally. Bonding is triggered by access to protected attributes in ATT Server
  * @param[in]   persistent          persistent data for security & privacy
+ * @return                          0 if ok else non-0. Possible causes for non-0 return value:
+ *                                      * generation of internal keys(IRK/ERK) are under going.
  */
-void sm_config(uint8_t enable,
+int sm_config(uint8_t enable,
                io_capability_t io_capability,
                int   request_security,
                const sm_persistent_t *persistent);
+
+/**
+ * @brief Sets the persistent IRK (Identity Resolving Key).
+ *
+ * This function sets the local Identity Resolving Key (IRK). Once set, stack will
+ * use it and not derive it from (IR, d1)
+ *
+ * @param irk           The IRK to be set.
+ *                      This should be a valid `sm_key_t` type, and all 0s are not allowed.
+ *
+ * @note This function shall **only** be called during the initialization phase of the
+ *       Bluetooth stack, for example, in the handler of `PLATFORM_CB_EVT_PROFILE_INIT`.
+ *       This function shall **only** be called ahead of other SM APIs such as `sm_config`.
+ */
+void sm_set_persistent_irk(sm_key_t irk);
 
 /**
  * @brief add an sm event handler
@@ -101,11 +126,69 @@ void sm_private_random_address_generation_set_update_period(int period_ms);
 const uint8_t *sm_private_random_address_generation_get(void);
 
 /**
+ * @brief Registers OOB Data Callback.
  *
- * @brief Registers OOB Data Callback. The callback should set the oob_data and return 1 if OOB data is availble
+ * The callback should set the oob_data and return 1 if OOB data is available.
+ *
+ * Signature of `get_oob_data_callback`:
+ *      @param[in]  address_type            address type
+ *      @param[in]  addr                    address
+ *      @param[out] oob_data                OOB data (type `sm_key_t`)
+ *      @return                             1 if OOB data is available, else 0.
+ *
  * @param get_oob_data_callback
  */
-void sm_register_oob_data_callback( int (*get_oob_data_callback)(uint8_t addres_type, bd_addr_t addr, uint8_t * oob_data));
+void sm_register_oob_data_callback( int (*get_oob_data_callback)(uint8_t address_type, bd_addr_t addr, uint8_t * oob_data));
+
+/**
+ * @brief Registers secure pairing OOB Data Callback.
+ *
+ * The callback should set the peer_confirm & peer_random and return 1
+ * if OOB data is available.
+ *
+ * Signature of `get_sc_oob_data_callback`:
+ *      @param[in]  address_type            address type
+ *      @param[in]  addr                    address
+ *      @param[out] peer_confirm            peer confirm value (type `sm_key_t`)
+ *      @param[out] peer_random             peer random value (type `sm_key_t`)
+ *      @return                             1 if OOB data is available, else 0.
+ *
+ * @param get_sc_oob_data_callback
+ */
+void sm_register_sc_oob_data_callback(int (*get_sc_oob_data_callback)(uint8_t address_type, bd_addr_t addr, uint8_t *peer_confirm, uint8_t *peer_random));
+
+/**
+ * @brief (When secure pairing is used and OOB is selected) Start generate local
+ * OOB data (_confirm_ and _random_).
+ *
+ * After generated, _confirm_ and _random_ are passed to the callback.
+ *
+ * Each call of this function will generate a new P256 key pair that will used
+ * in **all** subsequent pairing attempts. When OOB is used, it is Developers's
+ * responsibility to refresh key pair properly. If OOB is not used, SM will
+ * re-generate a new key pair for each pairing attempt.
+ *
+ * BLUETOOTH CORE SPECIFICATION Version 5.4 | Vol 3, Part H, Section 2.3.6:
+ *
+ * > To protect a device's private key, a device should implement a method to
+ * > prevent an attacker from retrieving useful information about the device's private
+ * > key. For this purpose, a device should change its private key after every pairing
+ * > (successful or failed). Otherwise, it should change its private key whenever S +
+ * > 3F > 8, where S is the number of successful pairings and F the number of
+ * > failed attempts since the key was last changed.
+ *
+ * App can then pass these information together with device address to peer
+ * through OOB communication.
+ *
+ * Signature of `callback`:
+ *      @param[out] confirm                 local confirm value (type `sm_key_t`)
+ *      @param[out] random                  local random value (type `sm_key_t`)
+ *
+ * @param callback
+ * @return               0: started without error
+ *                      -1: previous OOB data is not generated yet
+ */
+int sm_sc_generate_oob_data(void (*callback)(const uint8_t *confirm, const uint8_t *random));
 
 /**
  * @brief Limit the STK generation methods. Bonding is stopped if the resulting one isn't in the list
@@ -145,6 +228,16 @@ int sm_address_resolution_lookup(uint8_t addr_type, bd_addr_t addr);
 void sm_config_conn(hci_con_handle_t con_handle,
                     io_capability_t io_capability,
                     uint8_t auth_req);
+
+/**
+ * @brief Set key distribution flags
+ *
+ * Note: Do not add `SM_KEYDIST_ENC_KEY` into flags, which will be added automatically.
+ *
+ * @param[in] flags     combination of `SM_KEYDIST_...`.
+ *                      default: `SM_KEYDIST_ID_KEY` | `SM_KEYDIST_SIGN`.
+ */
+void sm_set_key_distribution_flags(uint8_t flags);
 
 /**
  * @brief Decline bonding triggered by event before
@@ -219,17 +312,55 @@ void sm_authorization_grant(hci_con_handle_t con_handle);
 int sm_le_device_key(hci_con_handle_t con_handle);
 
 /**
+ * @brief To confirm numeric comparison when SM_EVENT_NUMERIC_COMPARISON_REQUEST is called.
+ * @param handle
+ */
+void sm_numeric_comparison_confirm(hci_con_handle_t con_handle);
+
+/**
+ *
+ * @brief Register a callback for get external LTK (for empty EDIV & Random)
+ *
+ * WARNING: This is subject to change.
+ *
+ * @param get_external_ltk_callback, where
+ *              @param[in]  con_handle          connection handle
+ *              @param[out] ltk                 LTK
+ *              @return                         0 when LTK is stored into `ltk` else non-zero
+ */
+void sm_register_external_ltk_callback(int (*get_external_ltk_callback)(hci_con_handle_t con_handle, uint8_t *ltk));
+
+/**
  * @brief SM state event
  */
 enum sm_state_t
 {
     SM_STARTED,
-    SM_FINAL_PAIRED,
-    SM_FINAL_REESTABLISHED,
-    SM_FINAL_FAIL_PROTOCOL,
-    SM_FINAL_FAIL_TIMEOUT,
-    SM_FINAL_FAIL_DISCONNECT,
+    SM_FINAL_PAIRED,                // successfully paired with a new device
+    SM_FINAL_REESTABLISHED,         // connection reestablished with a paired device
+    SM_FINAL_FAIL_PROTOCOL,         // protocol error occurred
+    SM_FINAL_FAIL_TIMEOUT,          // timeout occurred
+    SM_FINAL_FAIL_DISCONNECT,       // unexpected disconnection occurred
+    SM_FINAL_FAIL_OUT_OF_STORAGE,   // device database runs out of storage
+                                    // i.e. too many devices have been paired.
+    SM_FINAL_FAIL_ENCRYPTION,       // failed to start encryption
 };
+typedef void (*f_sm_cmac_done_handler)(void *user, uint8_t hash[16]);
+
+/**
+ * @brief Cipher-based Message Authentication Code (CMAC) using AES-
+ *        128 as the block cipher function, also known as AES-CMAC (RFC-4493)
+ *
+ * @param k             key (NULL for all 0 key)
+ * @param message_len   message length
+ * @param message       message itself (this buffer is not copied, so it must exists until `done_handler` is called)
+ * @param done_handle   callback function when CMAC is done
+ * @param user_data     user data for the callback function
+ */
+// void sm_generic_cmac_start(sm_key_t k, uint16_t message_len, const uint8_t * message,
+//                            f_sm_cmac_done_handler done_handler, void *user_data);
+// WARNING: ^^^ this API is not available in this release
+
 
 #ifdef __cplusplus
 }

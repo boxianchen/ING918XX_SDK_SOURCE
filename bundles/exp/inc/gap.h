@@ -26,12 +26,12 @@ extern "C" {
  * @{
  */
 typedef struct le_connection_parameter_range{
-    uint16_t le_conn_interval_min;
-    uint16_t le_conn_interval_max;
-    uint16_t le_conn_latency_min;
-    uint16_t le_conn_latency_max;
-    uint16_t le_supervision_timeout_min;
-    uint16_t le_supervision_timeout_max;
+    uint16_t le_conn_interval_min;          // Minimum connection interval
+    uint16_t le_conn_interval_max;          // Maximum connection interval
+    uint16_t le_conn_latency_min;           // Minimum connection latency
+    uint16_t le_conn_latency_max;           // Maximum connection latency
+    uint16_t le_supervision_timeout_min;    // Minimum supervision timeout
+    uint16_t le_supervision_timeout_max;    // Maximum supervision timeout
 } le_connection_parameter_range_t;
 
 //LE Scan type
@@ -54,10 +54,26 @@ uint8_t gap_set_random_device_address(const uint8_t *address);
 /**
  * @brief Disconnect connection with handle
  *
+ * This is equivalent to `gap_disconnect2(handle, 0x13)`.
+ *
  * @param handle                Used to identify an advertising set. Range: 0x00 to 0xEF
  * @return                      0: Message is sent out or the connection already release
  */
 uint8_t gap_disconnect(hci_con_handle_t handle);
+
+/**
+ * @brief Disconnect connection with handle
+ *
+ * @param handle                Used to identify an advertising set. Range: 0x00 to 0xEF
+ * @param reason                Reason:
+ *                                  - Authentication Failure error code (0x05)
+ *                                  - Other End Terminated Connection error codes (0x13 to 0x15)
+ *                                  - Unsupported Remote Feature error code (0x1A)
+ *                                  - Pairing with Unit Key Not Supported error code (0x29)
+ *                                  - Unacceptable Connection Parameters error code (0x3B)
+ * @return                      0: Message is sent out or the connection already release
+ */
+uint8_t gap_disconnect2(hci_con_handle_t handle, uint8_t reason);
 
 /**
  * @brief disconnect multi-connections
@@ -70,7 +86,7 @@ void gap_disconnect_all(void);
  * @param[in] addtype               BLE address type
  * @return                          0: Message is sent to controller
  */
-uint8_t gap_add_whitelist(const uint8_t *address,bd_addr_type_t  addtype);
+uint8_t gap_add_whitelist(const uint8_t *address, bd_addr_type_t  addtype);
 
 /**
  * @brief remove whitelist from controller
@@ -79,7 +95,7 @@ uint8_t gap_add_whitelist(const uint8_t *address,bd_addr_type_t  addtype);
  * @param addtype               BLE address type
  * @return                      0: Message is sent to controller
  */
-uint8_t gap_remove_whitelist(const uint8_t *address,bd_addr_type_t addtype);
+uint8_t gap_remove_whitelist(const uint8_t *address, bd_addr_type_t addtype);
 
 /**
  * @brief clear white lists in controller
@@ -87,6 +103,106 @@ uint8_t gap_remove_whitelist(const uint8_t *address,bd_addr_type_t addtype);
  * @return             0: message sent out  others: failed
  */
 uint8_t gap_clear_white_lists(void);
+
+/**
+ * @brief read white lists size in controller
+ *
+ * @return             0: message sent out  others: failed
+ */
+uint8_t gap_read_white_lists_size(void);
+
+/**
+ * @brief Add one device to the resolving list used to generate and resolve
+ * Resolvable Private Addresses in the Controller.
+ *
+ * @param address               peer identity address
+ * @param addtype               peer identity address type
+ * @param peer_irk              IRK of the peer device
+ * @param local_irk             IRK of the local device
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_add_dev_to_resolving_list(const uint8_t *address, bd_addr_type_t addtype,
+    const uint8_t *peer_irk, const uint8_t *local_irk);
+
+/**
+ * @brief Remove one device from the resolving list used to resolve Resolvable
+ * Private Addresses in the Controller.
+ *
+ * @param address               peer identity address
+ * @param addtype               peer identity address type
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_remove_dev_from_resolving_list(const uint8_t *address, bd_addr_type_t addtype);
+
+/**
+ * @brief Remove all devices from the resolving list used to resolve Resolvable
+ * Private Addresses in the Controller.
+ *
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_clear_resolving_list(void);
+
+// LE Privacy Mode
+typedef enum privacy_mode
+{
+    PRIVACY_MODE_NETWORK = 0, // Network Privacy Mode (default)
+                              // Identity address is not accepted if IRK is available
+    PRIVACY_MODE_DEVICE  = 1, // Device Privacy Mode
+                              // Identity address is accepted even if IRK is available
+} privacy_mode_t;
+
+/**
+ * @brief Specify the privacy mode to be used for a given entry on the resolving list.
+ *
+ * @param address               peer identity address
+ * @param addtype               peer identity address type
+ * @param privacy_mode          privacy mode for this peer device
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_set_privacy_mode(const uint8_t *address, bd_addr_type_t addtype,
+    privacy_mode_t privacy_mode);
+
+/**
+ * @brief Get the current peer Resolvable Private Address being used for the
+ * corresponding peer Public and Random (static) Identity Address.
+ *
+ * @param address               peer identity address
+ * @param addtype               peer identity address type
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_read_peer_resolving_addr(const uint8_t *address, bd_addr_type_t addtype);
+
+/**
+ * @brief Get the current local Resolvable Private Address being used for the
+ * corresponding peer Identity Address.
+ *
+ * @param address               peer identity address
+ * @param addtype               peer identity address type
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_read_local_resolving_addr(const uint8_t *address, bd_addr_type_t addtype);
+
+/**
+ * @brief Enable resolution of Resolvable Private Addresses in the Controller.
+ *
+ * @param enable                address resolution enable
+ *                              0: disabled (default)
+ *                              1: enabled
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_set_addr_resolution_enable(const uint8_t enable);
+
+/**
+ * @brief Set the length of time the Controller uses a Resolvable Private Address
+ * before a new resolvable private address is generated and starts being used.
+ *
+ * @param rpa_timeout           RPA_Timeout measured in seconds
+ *                                  Range: 0x0001 to 0x0E10
+ *                                  Time range: 1 s to 1 hour
+ *                                  Default: 0x0384 (900 s or 15 minutes)
+ * @return                      0: message sent out  others: failed
+ */
+uint8_t gap_set_resolvable_private_addr_timeout(uint16_t rpa_timeout);
 
 /**
  * @brief read rssi value of a appointed hci connection
@@ -131,9 +247,9 @@ uint8_t gap_le_read_channel_map(hci_con_handle_t handle);
  */
 typedef enum phy_type
 {
-    PHY_1M = 0x01,
-    PHY_2M = 0x02,
-    PHY_CODED = 0x03,
+    PHY_1M = 0x01,      // 1M PHY
+    PHY_2M = 0x02,      // 2M PHY
+    PHY_CODED = 0x03,   // Coded PHY
 } phy_type_t;
 
 /**
@@ -141,10 +257,10 @@ typedef enum phy_type
  */
 typedef enum unified_phy_type
 {
-    UNIFIED_PHY_1M = 0x01,
-    UNIFIED_PHY_2M = 0x02,
-    UNIFIED_PHY_CODED_S8 = 0x03,
-    UNIFIED_PHY_CODED_S2 = 0x04,
+    UNIFIED_PHY_1M = 0x01,          // Unified 1M PHY
+    UNIFIED_PHY_2M = 0x02,          // Unified 2M PHY
+    UNIFIED_PHY_CODED_S8 = 0x03,    // Unified Coded PHY with S8 coding
+    UNIFIED_PHY_CODED_S2 = 0x04,    // Unified Coded PHY with S2 coding
 } unified_phy_type_t;
 
 /**
@@ -152,11 +268,15 @@ typedef enum unified_phy_type
  */
 typedef enum phy_bittype
 {
-    PHY_1M_BIT    = BIT(0),
-    PHY_2M_BIT    = BIT(1),
-    PHY_CODED_BIT = BIT(2),
+    PHY_1M_BIT    = BIT(0), // 1M PHY bit
+    PHY_2M_BIT    = BIT(1), // 2M PHY bit
+    PHY_CODED_BIT = BIT(2), // Coded PHY bit
 } phy_bittype_t;
 
+/**
+ * @brief phy_bittypes_t is a bit field type for PHY types
+ * It can be used to represent multiple PHY types in a single variable.
+ */
 typedef uint8_t phy_bittypes_t;
 
 /**
@@ -164,13 +284,13 @@ typedef uint8_t phy_bittypes_t;
  */
 typedef enum
 {
-    ADV_CONNECTABLE,
-    ADV_SCANNABLE,
-    ADV_DIRECT,
-    ADV_HIGH_DUTY_DIR_ADV,
-    ADV_LEGACY,
-    ADV_ANONYMOUS,
-    ADV_INC_TX_POWER
+    ADV_CONNECTABLE,        // Connectable advertising event
+    ADV_SCANNABLE,          // Scannable advertising event
+    ADV_DIRECT,             // Directed advertising event
+    ADV_HIGH_DUTY_DIR_ADV,  // High Duty Cycle Directed Advertising event
+    ADV_LEGACY,             // Legacy advertising event
+    ADV_ANONYMOUS,          // Anonymous advertising event
+    ADV_INC_TX_POWER        // Include Transmit Power in advertising event
 } adv_event_property_t;
 
 #define    CONNECTABLE_ADV_BIT       BIT(ADV_CONNECTABLE)
@@ -180,10 +300,12 @@ typedef enum
 #define    LEGACY_PDU_BIT            BIT(ADV_LEGACY)
 #define    ANONY_ADV_BIT             BIT(ADV_ANONYMOUS)
 #define    INC_TX_ADV_BIT            BIT(ADV_INC_TX_POWER)
-
+/** adv event properties */
 typedef uint8_t adv_event_properties_t;
 
-#define PERIODIC_ADV_BIT_INC_TX      BIT(6)
+#define PERIODIC_ADV_BIT_INC_TX      BIT(ADV_INC_TX_POWER)
+
+/** periodic adv properties */
 typedef uint8_t periodic_adv_properties_t;
 
 /**
@@ -221,9 +343,9 @@ uint8_t gap_set_def_phy(const uint8_t all_phys, const phy_bittypes_t tx_phys, co
  */
 typedef enum phy_option
 {
-    HOST_NO_PREFERRED_CODING,
-    HOST_PREFER_S2_CODING,
-    HOST_PREFER_S8_CODING
+    HOST_NO_PREFERRED_CODING,       // No preferred coding
+    HOST_PREFER_S2_CODING,          // Prefer S2 coding
+    HOST_PREFER_S8_CODING           // Prefer S8 coding
 } phy_option_t;
 
 /**
@@ -290,13 +412,13 @@ typedef enum scan_filter_policy
     SCAN_ACCEPT_WLIST_EXCEPT_NOT_DIRECTED,
     // Accept all advertising packets except directed advertising packets
     // where the initiator's identity address does not address this device
-    SCAN_ACCEPT_ALL_EXCEPT_IDENTITY_NOT_MATCH,
+    // SCAN_ACCEPT_ALL_EXCEPT_IDENTITY_NOT_MATCH,
     // Accept all advertising packets except:
     // 1.  advertising packets where the advertiser's identity address is not in
     //     the White List; and
     // 2.  directed advertising packets where the initiator's identity address
     //     does not address this device
-    SCAN_ACCEPT_WLIST_EXCEPT_IDENTITY_NOT_MATCH
+    // SCAN_ACCEPT_WLIST_EXCEPT_IDENTITY_NOT_MATCH
 } scan_filter_policy_t;
 
 /**
@@ -306,7 +428,7 @@ typedef enum scan_filter_policy
  *
  * @param filter               @link #scan_filter_policy_t @endlink
  *
- * @param config_num           configure number 3 at most. It indicates that host would configure how many kinds of PHY
+ * @param config_num           configure number 2 at most. It indicates that host would configure how many kinds of PHY
  *
  * @param configs              struture pointer to the configuration of each PHY host specify
  *
@@ -317,6 +439,9 @@ uint8_t gap_set_ext_scan_para(const bd_addr_type_t own_addr_type, const scan_fil
 
 /**
  * @brief to set the extended scan response data for an advertising set
+ *
+ * Note: Scan response data is cleared after `gap_set_ext_adv_para()` on the same
+ * advertising set handle.
  *
  * @param adv_handle           handle of advertising set handle
  *
@@ -475,12 +600,15 @@ uint8_t gap_set_ext_adv_para(const uint8_t adv_handle,
  */
 typedef enum adv_data_frag_pref
 {
-    ADV_DATA_CTRL_MAY_FRAG = 0,
-    ADV_DATA_CTRL_NOT_FRAG = 1
+    ADV_DATA_CTRL_MAY_FRAG = 0,     // The Controller may fragment all Host advertising data
+    ADV_DATA_CTRL_NOT_FRAG = 1      // The Controller should not fragment or should minimize fragmentation of Host advertising data
 } adv_data_frag_pref_t_t;
 
 /**
  * @brief to set extended advertising data
+ *
+ * Note: Advertising data is cleared after `gap_set_ext_adv_para()` on the same
+ * advertising set handle.
  *
  * @param adv_handle           advertising set handle.
  *
@@ -496,6 +624,9 @@ uint8_t gap_set_ext_adv_data(const uint8_t adv_handle, uint16_t length, const ui
 
 /**
  * @brief LE Set Periodic Advertising Data command
+ *
+ * Note: Advertising data is cleared after `gap_set_ext_adv_para()` and
+ *       `gap_set_periodic_adv_para()` on the same advertising set handle.
  *
  * @param adv_handle           advertising set handle.
  *
@@ -538,6 +669,51 @@ uint8_t gap_set_periodic_adv_para(const uint8_t adv_handle,
                                   const uint16_t interval_min,
                                   const uint16_t interval_max,
                                   const periodic_adv_properties_t properties);
+
+/**
+ * @brief LE Set Periodic Advertising Parameters command
+ *
+ * @param adv_handle            handle of advertising set
+ *
+ * @param interval_min          0xXXXX Range: 0x0006 to 0xFFFF
+ *                                     Time = N * 1.25 ms
+ *                                     Time Range: 7.5ms to 81.91875 s
+ *
+ * @param interval_max          refer to interval_min
+ *
+ * @param properties            BIT(6): Include TxPower in the advertising PDU
+ *
+ * @param num_subevents         Number of subevents. Range: 0x00 to 0x80
+ *
+ * @param subevent_interval     Interval between subevents. Range: 0x06 to 0xFF
+ *                                  Time = N × 1.25 ms
+ *                                  Time Range: 7.5 ms to 318.75 ms
+ *
+ * @param response_slot_delay   0x00: No response slots
+ *                              0xXX: Time between the advertising packet in a subevent and the first
+ *                                   response slot. Range: 0x01 to 0xFE
+ *                                   Time = N × 1.25 ms
+ *                                   Time Range: 1.25 ms to 317.5 ms
+ *
+ * @param response_slot_spacing 0x00: No response slots
+ *                              0xXX: Time between response slots. Range: 0x02 to 0xFF
+ *                                   Time = N × 0.125 ms
+ *                                   Time Range: 0.25 ms to 31.875 ms
+ *
+ * @param num_response_slots    0x00: No response slots
+ *                              0xXX: Number of subevent response slots. Range: 0x01 to 0xFF
+ *
+ * @return                     0: message sent to controller
+ */
+uint8_t gap_set_periodic_adv_para_v2(const uint8_t adv_handle,
+                                  const uint16_t interval_min,
+                                  const uint16_t interval_max,
+                                  const periodic_adv_properties_t properties,
+                                  const uint8_t num_subevents,
+                                  const uint8_t subevent_interval,
+                                  const uint8_t response_slot_delay,
+                                  const uint8_t response_slot_spacing,
+                                  const uint8_t num_response_slots);
 
 /**
  * @brief LE Clear Advertising Sets command
@@ -676,6 +852,7 @@ typedef struct {
     // Supervision timeout for the LE Link, unit is 10ms
     uint16_t supervision_timeout;
     // Informative parameter recommending the min/max length of connection event needed for this LE connection
+    // unit is 625us
     uint16_t min_ce_len;
     uint16_t max_ce_len;
 } conn_para_t;
@@ -686,8 +863,8 @@ typedef struct {
  */
 typedef struct initiating_phy_config
 {
-    phy_type_t phy;
-    conn_para_t conn_param;
+    phy_type_t phy;         // Which phy to use for initiating process (valid phys: 1M, 2M & Coded)
+    conn_para_t conn_param; // Connection parameters for the PHY
 } initiating_phy_config_t;
 
 /**
@@ -722,6 +899,46 @@ typedef struct initiating_phy_config
  * @return                     0: message sent to controller
  */
 uint8_t gap_ext_create_connection(const initiating_filter_policy_t filter_policy,
+                                  const bd_addr_type_t own_addr_type,
+	                              const bd_addr_type_t peer_addr_type,
+	                              const uint8_t *peer_addr,
+                                  const uint8_t initiating_phy_num,
+                                  const initiating_phy_config_t *phy_configs);
+
+/**
+ * @brief LE Extended Create Connection command [V2]
+ *
+ * @ref `gap_ext_create_connection`
+ *
+ * When creating connection through PAwR, the `adv_handle` parameter is used to identify
+ * the periodic advertising train, and the `subevent` parameter is used to identify the
+ * subevent where a connection request shall be initiated from a periodic advertising train.
+ * Otherwise, these two parameters shall be set to 0xFF, in which case, the behavior of
+ * this function is exactly the same as [V1].
+ *
+ * @param adv_handle           Advertising_Handle identifying the periodic advertising train
+ *                             Range: 0x00 to 0xEF or 0xFF
+ *
+ * @param subevent             Subevent where the connection request is to be sent.
+ *                             Range: 0x00 to 0x7F or 0xFF
+ *
+ * @param filter_policy        @ref `gap_ext_create_connection`
+ *
+ * @param own_addr_type        @ref `gap_ext_create_connection`
+ *
+ * @param peer_addr_type       @ref `gap_ext_create_connection`
+ *
+ * @param peer_addr            @ref `gap_ext_create_connection`
+ *
+ * @param initiating_phy_num   @ref `gap_ext_create_connection`
+ *
+ * @param phy_configs          @ref `gap_ext_create_connection`
+ *
+ * @return                     0: message sent to controller
+ */
+uint8_t gap_ext_create_connection_v2(const uint8_t adv_handle,
+                                  const uint8_t subevent,
+                                  const initiating_filter_policy_t filter_policy,
                                   const bd_addr_type_t own_addr_type,
 	                              const bd_addr_type_t peer_addr_type,
 	                              const uint8_t *peer_addr,
@@ -768,9 +985,9 @@ uint8_t gap_set_data_length(uint16_t connection_handle, uint16_t tx_octets, uint
  */
 typedef enum
 {
-    CTE_AOA,
-    CTE_AOD_1US,
-    CTE_AOD_2US
+    CTE_AOA,        // Angle of Arrival
+    CTE_AOD_1US,    // Angle of Departure with 1us slot duration
+    CTE_AOD_2US     // Angle of Departure with 2us slot duration
 } cte_type_t;
 
 /**
@@ -813,8 +1030,8 @@ uint8_t gap_set_connectionless_cte_tx_enable(const uint8_t       adv_handle,
  */
 typedef enum
 {
-    CTE_SLOT_DURATION_1US = 1,
-    CTE_SLOT_DURATION_2US = 2
+    CTE_SLOT_DURATION_1US = 1,  // 1us slot duration
+    CTE_SLOT_DURATION_2US = 2   // 2us slot duration
 } cte_slot_duration_type_t;
 
 /**
@@ -967,9 +1184,12 @@ uint8_t gap_periodic_adv_set_info_transfer(const hci_con_handle_t   conn_handle,
 
 typedef enum
 {
-    PERIODIC_TRANS_MODE_NULL,
-    PERIODIC_TRANS_MODE_SEND_EVT_DISABLE_REPORT,
-    PERIODIC_TRANS_MODE_SEND_EVT_ENABLE_REPORT
+    PERIODIC_TRANS_MODE_NULL,                       // No attempt is made to synchronize to the periodic advertising and
+                                                    // no HCI_LE_Periodic_Advertising_Sync_Transfer_Received event is sent to the Host.
+    PERIODIC_TRANS_MODE_SEND_EVT_DISABLE_REPORT,    // An HCI_LE_Periodic_Advertising_Sync_Transfer_Received event is sent to the Host.
+                                                    // HCI_LE_Periodic_Advertising_Report events will be disabled.
+    PERIODIC_TRANS_MODE_SEND_EVT_ENABLE_REPORT,     // An HCI_LE_Periodic_Advertising_Sync_Transfer_Received event is sent to the Host.
+                                                    // HCI_LE_Periodic_Advertising_Report events will be enabled with duplicate filtering disabled
 } periodic_adv_sync_transfer_mode_t;
 
 // synchronize exclusion flags
@@ -1063,13 +1283,22 @@ int gap_update_connection_parameters(hci_con_handle_t con_handle, uint16_t conn_
     uint16_t min_ce_len, uint16_t max_ce_len);
 
 /**
- * @brief Set accepted connection parameter range
+ * @brief Get accepted connection parameter range
  * @param range                 see structure @link #le_connection_parameter_range_t  @endlink
  */
 void gap_get_connection_parameter_range(le_connection_parameter_range_t * range);
 
 /**
- * @brief Get accepted connection parameter range
+ * @brief Set accepted connection parameter range
+ *
+ * Default: All zero which means any incoming parameter is accepted.
+ *
+ * Set to an **invalid** range will reject any incoming connection parameter request.
+ *
+ * An **invalid** range is defined by:
+ * - `le_conn_interval_min` is 0xffff.
+ * - other fields: all 0.
+ *
  * @param range                 see structure @link #le_connection_parameter_range_t  @endlink
  */
 void gap_set_connection_parameter_range(le_connection_parameter_range_t * range);
@@ -1205,6 +1434,27 @@ uint8_t gap_subrate_request(hci_con_handle_t con_handle,
 
 typedef void (*gap_hci_cmd_complete_cb_t)(const uint8_t *return_params, void *user_data);
 
+// `return_params` points to `status` for gap_hci_cmd_status_cb_t
+typedef gap_hci_cmd_complete_cb_t gap_hci_cmd_status_cb_t;
+
+/**
+ * @brief Setup a callback for the next HCI related GAP API which will be called
+ *        upon the corresponding COMMAND COMPLETE or STATUS event.
+ *
+ * Note: `gap_hci_cmd_status_cb_t` is an alias of `gap_hci_cmd_complete_cb_t`.
+ *
+ * No matter the next HCI related GAP API call succeeds or not, this callback is consumed.
+ *
+ * If a callback created by previous `gap_set_callback_for_next_hci` has not been consumed,
+ * it is replaced by a new one.
+ *
+ * @param cb                    callback function on the corresponding command complete event
+ * @param user_data             user data for the callback function
+ * @return                      0: callback is stored;
+ *                              BTSTACK_MEMORY_ALLOC_FAILED: out of memory
+ */
+uint8_t gap_set_callback_for_next_hci(gap_hci_cmd_complete_cb_t cb, void *user_data);
+
 /**
  * @brief Encrypt the Plaintext_Data in the command using the Key given in the command and
  *          returns the Encrypted_Data to the Host. The AES-128 bit block cypher is
@@ -1252,7 +1502,7 @@ uint8_t gap_rx_test_v2(uint8_t rx_channel, uint8_t phy, uint8_t modulation_index
 uint8_t gap_rx_test_v3(uint8_t rx_channel, uint8_t phy, uint8_t modulation_index,
                             uint8_t expected_cte_length, uint8_t expected_cte_type,
                             uint8_t slot_durations,
-                            uint8_t switching_pattern_length, uint8_t *antenna_ids);
+                            uint8_t switching_pattern_length, const uint8_t *antenna_ids);
 
 /**
  * @brief  Start a test where the DUT generates test reference packets at a fixed interval.
@@ -1289,7 +1539,7 @@ uint8_t gap_tx_test_v2(uint8_t tx_channel, uint8_t test_data_length,
 uint8_t gap_tx_test_v4(uint8_t tx_channel, uint8_t test_data_length,
                         uint8_t packet_payload, uint8_t phy,
                         uint8_t cte_length, uint8_t cte_type,
-                        uint8_t switching_pattern_length, uint8_t *antenna_ids,
+                        uint8_t switching_pattern_length, const uint8_t *antenna_ids,
                         int8_t tx_power_level);
 
 /**
@@ -1297,6 +1547,72 @@ uint8_t gap_tx_test_v4(uint8_t tx_channel, uint8_t test_data_length,
  * @return                      0: Message is sent out; Other: Message is not sent out
  */
 uint8_t gap_test_end(void);
+
+#pragma pack (push, 1)
+
+typedef struct
+{
+    uint8_t         subevent;       // The subevent index of the data contained in this command. Range: 0x00 to 0x7F
+    uint8_t         rsp_slot_start; // The first response slots to be used in this subevent
+    uint8_t         rsp_slot_count; // The number of response slots to be used.
+    uint8_t         data_len;       // The number of octets in the `data`. [0..251]
+    const uint8_t * data;           // Advertising data
+} gap_prd_adv_subevent_data_t;
+
+#pragma pack (pop)
+
+/**
+ * @brief Set the data for one or more subevents of PAwR
+ *
+ * The data for a subevent will be transmitted only once. Total length of the packed
+ * HCI command should not exceed maximum length.
+ *
+ * @param[in] adv_handle        Used to identify a periodic advertising train. Range: 0x00 to 0xEF
+ * @param[in] num_subevents     Number of subevent data in the command. (0x01..0x0f)
+ * @param[in] data              data for each subevents
+ * @return                      0: Message is sent out; Other: Message is not sent out
+ */
+uint8_t gap_set_periodic_adv_subevent_data(uint8_t adv_handle,
+                                           uint8_t num_subevents,
+                                           const gap_prd_adv_subevent_data_t *data);
+
+/**
+ * @brief Set the data for a response slot in a specific subevent of the PAwR
+ *
+ * The data for a subevent will be transmitted only once.
+ *
+ * @param[in] sync_handle       Identify the PAwR train. Range: 0x0000 to 0x0EFF
+ * @param[in] request_event     The value of `paEventCounter` for the periodic advertising
+ *                              packet that the Host is responding to.
+ * @param[in] request_subevent  The subevent for the periodic advertising packet that the Host is responding to.
+ * @param[in] rsp_subevent      Identify the subevent of the PAwR train. Range: 0x00 to 0x7F
+ * @param[in] rsp_slot          Identify the response slot of the PAwR train.  Range: 0x00 to 0xFF
+ * @param[in] rsp_data_len      The number of octets in the `rsp_data` parameter. (0..251)
+ * @param[in] rsp_data          Response data.
+ * @return                      0: Message is sent out; Other: Message is not sent out
+ */
+uint8_t gap_set_periodic_adv_rsp_data(uint16_t sync_handle,
+                                      uint16_t request_event,
+                                      uint8_t request_subevent,
+                                      uint8_t rsp_subevent,
+                                      uint8_t rsp_slot,
+                                      uint8_t rsp_data_len,
+                                      const uint8_t *rsp_data);
+
+/**
+ * @brief Instruct the Controller to synchronize with a subset of the subevents within a PAwR train
+ *
+ * @param[in] sync_handle               Identify the PAwR train. Range: 0x0000 to 0x0EFF
+ * @param[in] periodic_adv_properties   Properties (bit combination of \ref `adv_event_property_t`).
+ *                                      Only 0 or PERIODIC_ADV_BIT_INC_TX is allowed.
+ * @param[in] num_subevents             Number of subevents.  Range: 0x01 to 0x80
+ * @param[in] subevents                 Each subevent to synchronize with. Range 0x00 to 0x7F
+ * @return                              0: Message is sent out; Other: Message is not sent out
+ */
+uint8_t gap_set_periodic_sync_subevent(uint16_t sync_handle,
+                                       uint16_t periodic_adv_properties,
+                                       uint8_t num_subevents,
+                                       const uint8_t *subevents);
 
 /**
  * @brief  Start/Stop transmission of continuouswave.
@@ -1325,6 +1641,7 @@ uint8_t gap_vendor_tx_continuous_wave(uint8_t enable, uint8_t power_level_index,
  * @param[in]  msg_len               message length to be encrypt or decrypt (<= 384 bytes)
  * @param[in]  aad_len               Additional authenticated data length (<= 16 bytes)
  * @param[in]  tag                   a value to identify a AES-CCM request.
+ *                                   the same value will be reported in the event.
  * @param[in]  key                   128 bits long key as required by AES-CCM
  * @param[in]  nonce                 random value of each AES-CCM require 13 bytes long
  * @param[in]  msg                   pointer to the message input
@@ -1336,11 +1653,11 @@ uint8_t gap_vendor_tx_continuous_wave(uint8_t enable, uint8_t power_level_index,
  * @return                           0: success    others: failed
  */
 uint8_t gap_start_ccm(
-        uint8_t  type,          // 0: encrypt  1: decrypt
+        uint8_t  type,
         uint8_t  mic_size,
         uint16_t msg_len,
         uint16_t aad_len,
-        uint32_t tag,          // same value will be reported in event
+        uint32_t tag,
         const uint8_t *key,
         const uint8_t *nonce,
         const uint8_t *msg,
@@ -1377,6 +1694,7 @@ int  hci_power_control(HCI_POWER_MODE mode);
 
 /*********************************/
 typedef enum {
+    LEVEL_0 = 0,  // No security
     // No security
     // No encryption required
     // No authentication
@@ -1391,6 +1709,54 @@ typedef enum {
     // Authenticated LE Secure Connections pairing with encryption
     LEVEL_4,
 } gap_security_level_t;
+
+/**
+ * @brief gap connection parameter update reply
+ * @note This function is used when STACK_CONNECTION_UPDATE_PARAMETER_REPLY_USER is set,
+ *       and when `HCI_SUBEVENT_LE_REMOTE_CONNECTION_PARAMETER_REQUEST` is received.
+ * @param handle                The connection handle.
+ *                              Range 0x0000 to 0x0EFF
+ * @param min_interval          Minimum connection interval.
+ *                              Minimum value of the connection interval.
+ *                              Range: 0x0006 to 0x0C80
+ *                              Time = N × 1.25 ms
+ *                              Time Range: 7.5 ms to 4 s
+ * @param max_interval          Maximum connection interval.
+ *                              Maximum value of the connection interval.
+ *                              Range: 0x0006 to 0x0C80
+ *                              Time = N × 1.25 ms
+ *                              Time Range: 7.5 ms to 4 s
+ * @param latency               Peripheral latency.
+ *                              Maximum allowed Peripheral latency for the connection specified as the number of subrated connection events.
+ *                              Range: 0x0000 to 0x01F3 (499)
+ * @param timeout               Supervision timeout for the connection requested by the remote device.
+ *                              Range: 0x000A to 0x0C80
+ *                              Time = N × 10 ms
+ *                              Time Range: 100 ms to 32 s
+ * @param min_ce_len            Information parameter about the minimum length of connection event needed for this LE connection
+ *                              Range: 0x0000 to 0xFFFF
+ *                              Time = N × 0.625 ms
+*                               Time Range: 0 ms to 40.9 s
+ * @param max_ce_len            Information parameter about the maximum length of connection event needed for this LE connection
+ *                              Range: 0x0000 to 0xFFFF
+ *                              Time = N × 0.625 ms
+*                               Time Range: 0 ms to 40.9 s
+ * @return                      0: Message is sent out; Other: Message is not sent out
+ */
+uint8_t gap_connection_parameter_update_reply(hci_con_handle_t handle, uint16_t min_interval, uint16_t max_interval,
+    uint16_t latency, uint16_t timeout, uint16_t min_ce_len, uint16_t max_ce_len);
+
+/**
+ * @brief gap connection parameter update negative reply
+ * @note This function is used when STACK_CONNECTION_UPDATE_PARAMETER_REPLY_USER is set,
+ *       and when `HCI_SUBEVENT_LE_REMOTE_CONNECTION_PARAMETER_REQUEST` is received.
+ * @param handle                The connection handle.
+ *                              Range 0x0000 to 0x0EFF
+ * @param error_code            The error code for rejecting the connection parameter update request.
+ *                              for example ERROR_CODE_UNACCEPTABLE_CONNECTION_PARAMETERS
+ * @return                      0: Message is sent out; Other: Message is not sent out
+ */
+uint8_t gap_connection_parameter_update_negative_reply(hci_con_handle_t handle, uint8_t error_code);
 
 /**
  * @}

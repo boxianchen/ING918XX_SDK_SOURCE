@@ -58,6 +58,7 @@ static const char help[] =  "commands:\n"
                             "write  handle XX XX ...             write value to a characteristic\n"
                             "w/or   handle XX XX ...             write without response to a char.\n"
                             "sub    handle                       subscribe to a characteristic\n"
+                            "sub/o  handle                       subscribe to a characteristic without callback\n"
                             "unsub  handle                       unsubscribe\n"
                             "bond   0/1                          bonding\n"
                             "phy    1m/2m/s2/s8                  central only\n"
@@ -68,7 +69,10 @@ static const char help[] =  "commands:\n"
                             "auto   0/1                          enable/disable auto power control\n"
                             "subr   factor                       subrate with factor\n"
                             "syncgap                             demo sync GAP APIs\n"
-                            "lock   freq                         lock to freq (MHz). 0 to unlock"
+                            "lock   freq                         lock to freq (MHz). 0 to unlock\n"
+                            "re-conn                             demo of abort & re-connect\n"
+                            "status                              show controller status\n"
+                            "mtu    n                            customize mtu for new connections\n"
                             ;
 
 void cmd_help(const char *param)
@@ -202,8 +206,9 @@ void read_value_of_char(int handle);
 void sync_read_value_of_char(int handle);
 void write_value_of_char(int handle, block_value_t *value);
 void wor_value_of_char(int handle, block_value_t *value);
-void sub_to_char(int handle);
+void sub_to_char(int handle, uint8_t reg_cb);
 void unsub_to_char(int handle);
+void set_mtu(uint16_t mtu);
 
 int parse_addr(uint8_t *output, const char *param)
 {
@@ -372,7 +377,29 @@ void cmd_sub_char(const char *param)
         tx_data(error, strlen(error) + 1);
         return;
     }
-    sub_to_char(t);
+    sub_to_char(t, 1);
+}
+
+void cmd_sub_char_without_cb(const char *param)
+{
+    int t = 0;
+    if (sscanf(param, "%d", &t) != 1)
+    {
+        tx_data(error, strlen(error) + 1);
+        return;
+    }
+    sub_to_char(t, 0);
+}
+
+void cmd_mtu(const char *param)
+{
+    int t = 0;
+    if (sscanf(param, "%d", &t) != 1)
+    {
+        tx_data(error, strlen(error) + 1);
+        return;
+    }
+    set_mtu((uint16_t)t);
 }
 
 void cmd_unsub_char(const char *param)
@@ -402,6 +429,8 @@ void cmd_stop(const char *param)
 
 void set_phy(int phy);
 void change_conn_param(int interval, int latency, int timeout);
+void ble_re_connect(void);
+void ble_show_status(void);
 
 void cmd_phy(const char *param)
 {
@@ -443,6 +472,16 @@ void cmd_lock(const char *param)
         ll_unlock_frequency();
         platform_printf("unlocked\n");
     }
+}
+
+static void cmd_reconn(const char *param)
+{
+    ble_re_connect();
+}
+
+static void cmd_status(const char *param)
+{
+    ble_show_status();
 }
 
 static cmd_t cmds[] =
@@ -536,6 +575,10 @@ static cmd_t cmds[] =
         .handler = cmd_sub_char
     },
     {
+        .cmd = "sub/o",
+        .handler = cmd_sub_char_without_cb
+    },
+    {
         .cmd = "unsub",
         .handler = cmd_unsub_char
     },
@@ -582,7 +625,19 @@ static cmd_t cmds[] =
     {
         .cmd = "lock",
         .handler = cmd_lock
-    }
+    },
+    {
+        .cmd = "re-conn",
+        .handler = cmd_reconn
+    },
+    {
+        .cmd = "status",
+        .handler = cmd_status
+    },
+    {
+        .cmd = "mtu",
+        .handler = cmd_mtu
+    },
 };
 
 void handle_command(char *cmd_line)

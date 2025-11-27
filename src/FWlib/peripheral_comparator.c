@@ -4,7 +4,7 @@
 
 #include "peripheral_comparator.h"
 
-#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918 || INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
 
 #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
 
@@ -167,7 +167,7 @@ COMPARATOR_INTERRUPT_MODE_t COMPARATOR_GetIntStatusAndClear(void)
     COMPARATOR_INTERRUPT_MODE_t ret;
     uint32_t reg_data;
 
-    ret = COMPARATOR_reg_read_bits(&APB_SYSCTRL->AnaCtrl, offset, bits_width);
+    ret = (COMPARATOR_INTERRUPT_MODE_t)COMPARATOR_reg_read_bits(&APB_SYSCTRL->AnaCtrl, offset, bits_width);
     reg_data = COMPARATOR_reg_read_bits(&APB_SYSCTRL->AnaCtrl, 0, SYSCTRL_ANA_CTRL_W1C_BITS);
     COMPARATOR_reg_write_bits(&reg_data, offset, bits_width, ret);
     COMPARATOR_reg_write_bits(&APB_SYSCTRL->AnaCtrl, 0, 32, reg_data);

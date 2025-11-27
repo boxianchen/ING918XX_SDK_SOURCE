@@ -13,8 +13,13 @@
 #ifndef MAX_CONN_NUMBER
     #if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
         #define MAX_CONN_NUMBER     26
+        #define MAX_CONN_CENTRAL    24
     #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
-        #define MAX_CONN_NUMBER     12
+        #define MAX_CONN_NUMBER     10
+        #define MAX_CONN_CENTRAL    MAX_CONN_NUMBER
+    #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+        #define MAX_CONN_NUMBER     5
+        #define MAX_CONN_CENTRAL    MAX_CONN_NUMBER
     #else
         #error unknown INGCHIPS_FAMILY
     #endif
@@ -47,7 +52,7 @@ void show_heap(void)
     platform_printf(buffer, strlen(buffer) + 1);
 }
 
-static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t offset, 
+static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t offset,
                                   uint8_t * buffer, uint16_t buffer_size)
 {
     switch (att_handle)
@@ -58,7 +63,7 @@ static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t a
     }
 }
 
-static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode, 
+static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode,
                               uint16_t offset, const uint8_t *buffer, uint16_t buffer_size)
 {
     switch (att_handle)
@@ -91,7 +96,27 @@ const static ext_adv_set_en_t adv_sets_en[] = { {.handle = 0, .duration = 0, .ma
 static void setup_adv(void)
 {
     int i;
-    if (adv_started) return;
+    if (adv_started)
+    {
+#if (MAX_CONN_CENTRAL < MAX_CONN_NUMBER)
+        if (rand_addr[BD_ADDR_LEN - 1] < MAX_CONN_CENTRAL)
+            return;
+
+        for (i = 0; i < MAX_CONN_CENTRAL; i++)
+        {
+            if (conn_handles[i] == INVALID_HANDLE)
+                break;
+        }
+
+        if (i >= MAX_CONN_CENTRAL)
+            return;
+
+        adv_started = 0;
+        gap_set_ext_adv_enable(0, 0, NULL);
+#else
+        return;
+#endif
+    }
 
     for (i = 0; i < MAX_CONN_NUMBER; i++)
     {
@@ -107,9 +132,9 @@ static void setup_adv(void)
     platform_printf("ADDR: %d\n", i);
     rand_addr[BD_ADDR_LEN - 1] = i;
     gap_set_adv_set_random_addr(0, rand_addr);
-    gap_set_ext_adv_para(0, 
+    gap_set_ext_adv_para(0,
                             CONNECTABLE_ADV_BIT | SCANNABLE_ADV_BIT | LEGACY_PDU_BIT,
-                            0x01a0, 0x01a0,            // Primary_Advertising_Interval_Min, Primary_Advertising_Interval_Max
+                            0x0a0, 0x0a0,              // Primary_Advertising_Interval_Min, Primary_Advertising_Interval_Max
                             PRIMARY_ADV_ALL_CHANNELS,  // Primary_Advertising_Channel_Map
                             BD_ADDR_TYPE_LE_RANDOM,    // Own_Address_Type
                             BD_ADDR_TYPE_LE_PUBLIC,    // Peer_Address_Type (ignore)
@@ -156,6 +181,7 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
         switch (hci_event_le_meta_get_subevent_code(packet))
         {
         case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE:
+        case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE_V2:
             {
                 hci_con_handle_t handle = decode_hci_le_meta_event(packet, le_meta_event_create_conn_complete_t)->handle;
                 att_set_db(handle, profile_data);

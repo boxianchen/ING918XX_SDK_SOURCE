@@ -1,10 +1,16 @@
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
 void cube_soc_init(void)
 {
-platform_config(PLATFORM_CFG_OSC32K_EN, PLATFORM_CFG_DISABLE);
-platform_config(PLATFORM_CFG_32K_CLK_ACC, 500);
+platform_config(PLATFORM_CFG_RT_OSC_EN, PLATFORM_CFG_DISABLE);
+platform_config(PLATFORM_CFG_RT_CLK_ACC, 500);
 SYSCTRL_ConfigPLLClk(5, 42, 1);
 SYSCTRL_SelectHClk(SYSCTRL_CLK_PLL_DIV_1 + 0);
 }
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+void cube_soc_init(void)
+{
+}
+#endif
 
 void cube_setup_peripherals(void)
 {

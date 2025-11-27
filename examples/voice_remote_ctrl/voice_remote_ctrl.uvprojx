@@ -7,15 +7,15 @@
       <TargetName>Target 1</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
-      <pCCUsed>6190000::V6.19::ARMCLANG</pCCUsed>
+      <pCCUsed>6230000::V6.23::ARMCLANG</pCCUsed>
       <uAC6>1</uAC6>
       <TargetOption>
         <TargetCommonOption>
           <Device>ing91600</Device>
           <Vendor>INGChips</Vendor>
           <PackID>INGChips.INGCHIPS_DeviceFamilyPack.0.9.0</PackID>
-          <PackURL>http://www.ingchips.com</PackURL>
-          <Cpu>IRAM(0x20000000,0x00008000) IROM(0x2000000,0x00200000) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
+          <PackURL>http://www.keil.com/pack</PackURL>
+          <Cpu>CLOCK(128000000) CPUTYPE("Cortex-M4") FPU2 ELITTLE IROM(0x2000000-0x21fffff) IRAM(0x20000000-0x20007fff)</Cpu>
           <FlashUtilSpec/>
           <StartupFile/>
           <FlashDriverDll/>
@@ -273,8 +273,8 @@
               </OCR_RVCT3>
               <OCR_RVCT4>
                 <Type>1</Type>
-                <StartAddress>33718272</StartAddress>
-                <Size>360448</Size>
+                <StartAddress>33730560</StartAddress>
+                <Size>348160</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>
@@ -298,8 +298,8 @@
               </OCR_RVCT8>
               <OCR_RVCT9>
                 <Type>0</Type>
-                <StartAddress>536892360</StartAddress>
-                <Size>11320</Size>
+                <StartAddress>536892600</StartAddress>
+                <Size>11080</Size>
               </OCR_RVCT9>
               <OCR_RVCT10>
                 <Type>0</Type>
@@ -335,9 +335,9 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls/>
-              <Define>USE_STDPERIPH_DRIVER,AUDIO_INPUT=0</Define>
+              <Define>USE_STDPERIPH_DRIVER,AUDIO_INPUT=0,AUDIO_CODEC_ALG=1</Define>
               <Undefine/>
-              <IncludePath>../../bundles/typical/inc;../../bundles/typical/inc/os;../../src/BSP;../../src/FWlib;../../src/StartUP/ing916;../../src/Tools;../../src</IncludePath>
+              <IncludePath>.\libsbc\include;../../bundles/typical/inc;../../bundles/typical/inc/os;../../src/BSP;../../src/FWlib;../../src/StartUP/ing916;../../src/Tools;../../src</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -410,6 +410,16 @@
               <FileName>pingpong.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\src\pingpong.c</FilePath>
+            </File>
+            <File>
+              <FileName>audio_adpcm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\audio_adpcm.c</FilePath>
+            </File>
+            <File>
+              <FileName>audio_sbc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\audio_sbc.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -496,16 +506,16 @@
               <FileType>1</FileType>
               <FilePath>..\..\src\FWlib\peripheral_dma.c</FilePath>
             </File>
+            <File>
+              <FileName>peripheral_asdm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\src\FWlib\peripheral_asdm.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
           <GroupName>Tools</GroupName>
           <Files>
-            <File>
-              <FileName>audio.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\src\Tools\audio.c</FilePath>
-            </File>
             <File>
               <FileName>att_db_util.c</FileName>
               <FileType>1</FileType>

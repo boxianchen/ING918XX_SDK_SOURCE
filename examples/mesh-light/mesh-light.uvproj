@@ -294,8 +294,8 @@
               </OCR_RVCT3>
               <OCR_RVCT4>
                 <Type>1</Type>
-                <StartAddress>155648</StartAddress>
-                <Size>385024</Size>
+                <StartAddress>172032</StartAddress>
+                <Size>368640</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>
@@ -319,8 +319,8 @@
               </OCR_RVCT8>
               <OCR_RVCT9>
                 <Type>0</Type>
-                <StartAddress>536875376</StartAddress>
-                <Size>61072</Size>
+                <StartAddress>536874688</StartAddress>
+                <Size>61760</Size>
               </OCR_RVCT9>
               <OCR_RVCT10>
                 <Type>0</Type>
@@ -454,6 +454,11 @@
               <FileType>1</FileType>
               <FilePath>.\src\BUTTON_TEST.c</FilePath>
             </File>
+            <File>
+              <FileName>LED_TEST.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\LED_TEST.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -498,6 +503,11 @@
               <FileName>peripheral_sysctrl.c</FileName>
               <FileType>1</FileType>
               <FilePath>../..\src\FWlib\peripheral_sysctrl.c</FilePath>
+            </File>
+            <File>
+              <FileName>peripheral_timer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../..\src\FWlib\peripheral_timer.c</FilePath>
             </File>
             <File>
               <FileName>peripheral_uart.c</FileName>

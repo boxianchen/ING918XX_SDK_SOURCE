@@ -11,6 +11,10 @@
 #include "app_debug.h"
 #include "mesh_debug.h"
 
+#ifdef ENABLE_LED_TEST
+#include "LED_TEST.h"
+#endif
+
 
 /*--------------------------------------------------------------------
  *----------------------------> MODEL <-------------------------------
@@ -33,8 +37,8 @@ static bt_mesh_cfg_srv_t cfg_srv = {
     .default_ttl = 7,
 
     /* 3 transmissions with 20ms interval */
-    .net_transmit = BT_MESH_TRANSMIT(3, 100),
-    .relay_retransmit = BT_MESH_TRANSMIT(3, 100),
+    .net_transmit = BT_MESH_TRANSMIT(5, 50),
+    .relay_retransmit = BT_MESH_TRANSMIT(3, 50),
 
 };
 
@@ -51,6 +55,13 @@ static void light_update(struct light_state *a_light)
     }
     app_log_info("gen set rgb val: %d\n",val);
     set_rgb_led_color(val, val, val);
+
+#ifdef ENABLE_LED_TEST
+    if(val)
+        LED_ON(PIN_LED_9);
+    else
+        LED_OFF(PIN_LED_9);
+#endif
 }
 
 #define get_light_state(model, srv_cb) (light_state_t *)((struct srv_cb *)model->user_data)->light_state
@@ -223,6 +234,8 @@ void mesh_platform_init(void){
     const bd_addr_t addr_gatt_adv    = {0xd5, 0x33, 0xa3, 0x17, 0x2f, 0xFC};
     const bd_addr_t addr_beacon_adv  = {0xd0, 0x2a, 0x4e, 0x19, 0x28, 0xFC};
 
+    mesh_set_addr_static((uint8_t *)addr_gatt_adv);
+    mesh_set_addr_static((uint8_t *)addr_beacon_adv);
     mesh_platform_config(MESH_CFG_NAME, (uint8_t *)mesh_name, strlen(mesh_name));
     mesh_platform_config(MESH_CFG_GATT_ADV_ADDR, (uint8_t *)addr_gatt_adv, sizeof(bd_addr_t));
     mesh_platform_config(MESH_CFG_BEACON_ADV_ADDR, (uint8_t *)addr_beacon_adv, sizeof(bd_addr_t));

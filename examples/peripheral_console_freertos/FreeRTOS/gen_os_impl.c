@@ -179,7 +179,11 @@ const gen_os_driver_t *os_impl_get_driver(void)
 
 #if configSUPPORT_STATIC_ALLOCATION
 static StaticTask_t idle_task_TCB_buffer;
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+static StackType_t  idle_task_stack[1024 / sizeof(StackType_t)];
+#else
 static StackType_t  idle_task_stack[configMINIMAL_STACK_SIZE];
+#endif
 static StaticTask_t timer_task_TCB_buffer;
 static StackType_t  timer_task_stack[configTIMER_TASK_STACK_DEPTH];
 void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
@@ -214,9 +218,12 @@ void platform_get_heap_status(platform_heap_status_t *status)
     status->bytes_minimum_ever_free = xMinimumEverFreeBytesRemaining;
 }
 
+#define SYS_CLOCK_CYCLES_PER_TICK   ( configSYSTICK_CLOCK_HZ / configTICK_RATE_HZ )
+
 TickType_t sysPreSuppressTicksAndSleepProcessing(TickType_t expectedTicks)
 {
-    return platform_pre_suppress_ticks_and_sleep_processing(expectedTicks);
+    uint32_t cycles = platform_pre_suppress_cycles_and_sleep_processing(expectedTicks * SYS_CLOCK_CYCLES_PER_TICK);
+    return cycles / SYS_CLOCK_CYCLES_PER_TICK;
 }
 
 void sysPreSleepProcessing(TickType_t idleTime)

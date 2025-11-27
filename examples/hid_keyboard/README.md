@@ -5,9 +5,12 @@ This example demonstrates how to:
 * Define an HID keyboard profile;
 * Enable paring using passkey;
 * Use GPIO interrupts;
-* Report keyboard events.
+* Report keyboard events;
+* Usage of public address (debug only);
+* LE Secure Connection pairing;
+* Customize kv backend.
 
-Note: 
+Note:
     * Use Key1/Key2/Key3 to input `1`, `2` and '3';
     * Use UART to emulate printable ASCII inputs;
     * Test Result:

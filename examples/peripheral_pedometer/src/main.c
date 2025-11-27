@@ -53,21 +53,18 @@ void config_uart(uint32_t freq, uint32_t baud)
 
 void setup_peripherals_i2c_pin(void)
 {
-#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
     SYSCTRL_ClearClkGateMulti( (1 << SYSCTRL_ClkGate_APB_I2C0)
                                 | (1 << SYSCTRL_ClkGate_APB_GPIO0)
                                 | (1 << SYSCTRL_ClkGate_APB_GPIO1)
                                 | (1 << SYSCTRL_ClkGate_APB_PinCtrl));
-    PINCTRL_SetPadMux(10, IO_SOURCE_I2C0_SCL_O);
-    PINCTRL_SetPadMux(11, IO_SOURCE_I2C0_SDO);
-    PINCTRL_SelI2cSclIn(I2C_PORT_0, 10);
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
-    SYSCTRL_ClearClkGateMulti((1 << SYSCTRL_ITEM_APB_I2C0)
-                                | (1 << SYSCTRL_ITEM_APB_SysCtrl)
-                                | (1 << SYSCTRL_ITEM_APB_PinCtrl)
-                                | (1 << SYSCTRL_ITEM_APB_GPIO1)
-                                | (1 << SYSCTRL_ITEM_APB_GPIO0));
 
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
+    PINCTRL_SetPadMux(I2C_SCL, IO_SOURCE_I2C0_SCL_O);
+    PINCTRL_SetPadMux(GIO_GPIO_11, IO_SOURCE_I2C0_SDO);
+    PINCTRL_SelI2cSclIn(I2C_PORT_0, I2C_SCL);
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+    PINCTRL_SelI2cIn(I2C_PORT_0, I2C_SCL, I2C_SDA);
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
     PINCTRL_SelI2cIn(I2C_PORT_0, I2C_SCL, I2C_SDA);
 #else
     #error unknown or unsupported chip family
@@ -77,18 +74,9 @@ void setup_peripherals_i2c_pin(void)
 void setup_peripherals_i2c(void)
 {
     setup_peripherals_i2c_pin();
-#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
-    //init I2C module
-    I2C_Config(APB_I2C0,I2C_ROLE_MASTER,I2C_ADDRESSING_MODE_07BIT,get_acc_addr());
-    I2C_ConfigClkFrequency(APB_I2C0,I2C_CLOCKFREQUENY_STANDARD);
-    I2C_Enable(APB_I2C0,1);
-    I2C_IntEnable(APB_I2C0,(1<<I2C_INT_CMPL)|(1<<I2C_INT_ADDR_HIT));
-#endif
     printf("init");
     i2c_init(I2C_PORT_0);
 }
-
-
 
 void setup_peripherals(void)
 {
@@ -107,9 +95,13 @@ void setup_peripherals(void)
 	TMR_IntEnable(APB_TMR1);
     TMR_Reload(APB_TMR1);
 	TMR_Enable(APB_TMR1);
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#elif ((INGCHIPS_FAMILY == INGCHIPS_FAMILY_916) || (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20))
     // setup channel 0 of timer 1: 50Hz
-    SYSCTRL_SelectTimerClk(TMR_PORT_0,SYSCTRL_CLK_32k);
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+    SYSCTRL_SelectTimerClk(TMR_PORT_0, SYSCTRL_CLK_32k);
+#else
+    SYSCTRL_SelectTimerClk(TMR_PORT_1, 1, SOURCE_32K_CLK);
+#endif
     TMR_SetOpMode(APB_TMR1, 0, TMR_CTL_OP_MODE_32BIT_TIMER_x1, TMR_CLK_MODE_APB, 0);
     TMR_IntEnable(APB_TMR1,0,0xf);
     TMR_SetReload(APB_TMR1, 0, TMR_GetClk(APB_TMR1, 0) / ACC_SAMPLING_RATE);
@@ -146,6 +138,8 @@ uint32_t timer_isr(void *user_data)
 #if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
     TMR_IntClr(APB_TMR1);
 #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+    TMR_IntClr(APB_TMR1, 0, 0xf);
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
     TMR_IntClr(APB_TMR1, 0, 0xf);
 #else
     #error unknown or unsupported chip family

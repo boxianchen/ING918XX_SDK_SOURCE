@@ -13,4 +13,6 @@ ble_rpc_delete/
 dual_i2c/
 music_player/
 mesh_prov/
-direct_conn/
+ble_dongle/
+!peripheral_ancs/data/0x00.bin
+platform_companion_dbg/

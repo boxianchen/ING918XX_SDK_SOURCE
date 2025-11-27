@@ -21,6 +21,12 @@ extern "C" {	/* allow C++ to use these headers */
 
 #define PWM_CHANNEL_NUMBER      3
 
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+
+#define PWM_CLOCK_FREQ          SYSCTRL_GetClk(SYSCTRL_ITEM_APB_PWM)
+
+#define PWM_CHANNEL_NUMBER      3
+
 #endif
 
 typedef enum
@@ -33,6 +39,10 @@ typedef enum
 #if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
     PWM_WORK_MODE_DMA                           = 0x5,
     PWM_WORK_MODE_PCAP                          = 0x6
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+    PWM_WORK_MODE_DMA                           = 0x5,
+    PWM_WORK_MODE_PCAP                          = 0x6,
+    PWM_WORK_MODE_IR                            = 0x7
 #endif
 } PWM_WorkMode_t;
 
@@ -65,6 +75,8 @@ void PWM_SetMask(const uint8_t channel_index, const uint8_t mask_a, const uint8_
 
 void PWM_SetMode(const uint8_t channel_index, const PWM_WorkMode_t mode);
 
+PWM_WorkMode_t PWM_GetMode(const uint8_t channel_index);
+
 // PMW Halt Mode
 // When the register HALT_ENABLE is set to 1, PWM will controlled by HALT_CONFIG registers.
 // The PWM_OUT_A will output the value of HALT_CONFIG[0], and the PWM_OUT_B will output the value of HALT_CONFIG[1]
@@ -94,7 +106,7 @@ void PWM_SetupSingle(const uint8_t channel_index, const uint32_t pulse_width);
 // comp_num is in [0..3], which means [1..4] duty-cycles are used (\ref PWM_SetHighThreshold)
 void PWM_SetMultiDutyCycleCtrl(const uint8_t channel_index, const uint8_t comp_num);
 
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#elif ((INGCHIPS_FAMILY == INGCHIPS_FAMILY_916) || (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20))
 
 /**
  * @brief Enable PWM halt control
@@ -175,6 +187,13 @@ void PCAP_Enable(const uint8_t channel_index);
 void PCAP_CounterEnable(uint8_t enable);
 
 /**
+ * @brief Clear PCAP FIFO
+ *
+ * @param[in] channel_index     channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ */
+void PCAP_ClearFifo(uint8_t channel_index);
+
+/**
  * @brief Read a PCAP data
  *
  * PCAP output are generally re-directed to DMA, this function may be used for
@@ -211,14 +230,36 @@ uint32_t PCAP_ReadData(const uint8_t channel_index);
 uint32_t PCAP_ReadCounter(void);
 
 /**
- * @brief Enable/Disable PCAP fifo trigger when in isr mode, this is not needed for dma mode.
+ * @brief Enable/Disable PCAP FIFO interrupt requests
+ *
+ * Note: This is not needed for DMA mode.
  *
  * @param[in] channel_index     channel index (0 .. PWM_CHANNEL_NUMBER - 1)
  * @param[in] enable            Enable (1) or disable (0)
- * @param[in] mask              use combination PWM_FIFO_MASK_t, 
- *                              'PWM_FIFO_HALFFULL_EN | PWM_FIFO_TRIGGER_EN' for example
+ * @param[in] mask              combination of interrupt masks (see `PWM_FIFO_MASK_t`)
+ *                              for example: `PWM_FIFO_HALFFULL_EN | PWM_FIFO_TRIGGER_EN`
  */
-void PWM_FifoTriggerEnable(const uint8_t channel_index, uint8_t enable, uint32_t mask);
+void PWM_FifoIntEnable(const uint8_t channel_index, uint8_t enable, uint32_t mask);
+
+// `PWM_FifoTriggerEnable` is obsoleted.
+#define PWM_FifoTriggerEnable   PWM_FifoIntEnable
+#define PCAP_FifoIntEnable      PWM_FifoIntEnable
+
+/**
+ * @brief Set trigger level for PWM/PCAP for FIFO TRIGGER interrupt
+ *
+ * See also `PWM_FIFO_TRIGGER_EN`.
+ *
+ * Note: This is not needed for DMA mode.
+ *
+ * @param[in] channel_index     channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ * @param[in] trig_cfg          trigger level (0 .. 7), TRIGGER interrupt is generated when
+ *                              - for PCAP: fifo_cnt >= trig_cfg
+ *                              - for PWM: fifo_cnt < trig_cfg
+ */
+void PWM_SetIntTrigLevel(const uint8_t channel_index, const uint8_t trig_cfg);
+
+#define PCAP_SetIntTrigLevel    PWM_SetIntTrigLevel
 
 /**
  * @brief Get fifo status in fifo isr.
@@ -227,6 +268,61 @@ void PWM_FifoTriggerEnable(const uint8_t channel_index, uint8_t enable, uint32_t
  * @return                      use structure PWM_FIFO_STATUS_t to interpret the return value
  */
 uint32_t PWM_GetFifoStatus(const uint8_t channel_index);
+
+
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+/**
+ * @brief The PWM step mode.
+ *
+ * @param[in] channel           channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ * @param[in] enable            Enable (1) or disable (0)
+ */
+void PWM_StepEnabled(const uint8_t channel,uint8_t enable);
+/**
+ * @brief The PWM step loop mode.
+ *
+ * @param[in] channel           channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ * @param[in] enable            Enable (1) or disable (0)
+ */
+void PWM_StepLoopEnabled(const uint8_t channel,uint8_t enable);
+/**
+ * @brief Step value of each period in PWM step mode.
+ *
+ * @param[in] channel           channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ * @param[in] cnt               Step value of each period
+ */
+void PWM_SetStepCnt(const uint8_t channel,uint32_t cnt);
+/**
+ * @brief Step target in PWM IR mode.
+ *
+ * @param[in] channel           channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ * @param[in] target            target vale
+ */
+void PWM_SetStepTarget(const uint8_t channel,uint32_t target);
+/**
+ * @brief Set frequency and duty cycle in IR cycle mode
+ *
+ * @param[in] channel           channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ * @param[in] carry_channel     Cycle register sequence number.
+ * @param[in] frequency         set ferquency
+ * @param[in] duty              set duty
+ */
+void IR_CycleCarrierSetup(uint8_t channel, uint8_t carry_channel, uint32_t frequency, uint32_t duty);
+/**
+ * @brief Set IR mode dma register vale
+ *
+ * @param[in] channel           channel index (0 .. PWM_CHANNEL_NUMBER - 1)
+ * @param[in] carry_channel     Cycle mode set traget and count.
+ */
+void IR_WriteCarrierData(uint8_t channel, uint32_t data);
+/**
+ * @brief Set IR mode busy state
+ *
+ * @return                      IR busy state.
+ */
+uint8_t IR_BusyState(uint8_t channel);
+#endif
+
 #endif
 
 #ifdef __cplusplus

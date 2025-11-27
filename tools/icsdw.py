@@ -9,6 +9,7 @@ import usb.core
 import usb.util
 import usb.backend.libusb1
 import datetime
+import libusb_package
 
 DEF_BAUD = 115200
 RAM_BASE_ADDR = 0x20000000
@@ -62,6 +63,18 @@ def calc_crc_16(PData: bytes):
 
   return (uchCRCHi << 8) | uchCRCLo
 
+class TimeMeasurement:
+    def __init__(self) -> None:
+        pass
+
+    def start(self):
+        self.t0 = time.time()
+
+    def show_throughput(self, size, prefix: str = ' |'):
+        duration = time.time() - self.t0
+        if duration > 0:
+            print(f"{prefix}{size} bytes in {duration:.2f}s ({size/duration:.1f} B/s)")
+
 def load_mod(fn: str):
     import importlib.machinery, importlib.util
     loader = importlib.machinery.SourceFileLoader('script_mod', fn)
@@ -70,12 +83,12 @@ def load_mod(fn: str):
     loader.exec_module(mod)
     return mod
 
-def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 60, fill = '█', printEnd = "\r"):
+def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 60, fill = '█', printEnd = "\r", auto_nl = True):
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
     filledLength = int(length * iteration // total)
     bar = fill * filledLength + '-' * (length - filledLength)
     print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
-    if iteration == total:
+    if (iteration == total) and auto_nl:
         print()
 
 def get_port_name(name):
@@ -168,16 +181,21 @@ def do_test(ser, config):
 
 class device(object):
     def __init__(self, port, timeout, config):
-        self.dev_type = 0 if port.lower().startswith('com' or 'tty') else 1
+        if port.lower().startswith('daplink'):
+            raise Exception(f'Port {port} is NOT supported yet.')
+        self.dev_type = 1 if port.lower().startswith('usb') else 0
         self.dev = None
+        self.port = port
+        self.timeout = timeout
+        self.config = config
         if self.dev_type == 1:
-            self.backend = usb.backend.libusb1.get_backend(find_library=lambda x: os.path.split(os.path.realpath(__file__))[0] + "\\libusb-1.0.dll")
+            self.backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
         self.open(port, timeout, config)
 
     @staticmethod
     def query_all_active_usb_ports(timeout = 10):
         start_time = datetime.datetime.now()
-        backend = usb.backend.libusb1.get_backend(find_library=lambda x: os.path.split(os.path.realpath(__file__))[0] + "\\libusb-1.0.dll")
+        backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
         from icsdw916 import intf_usb
         intf = intf_usb()
         devs = []
@@ -197,19 +215,104 @@ class device(object):
             self.dev = open_serial(config, port)
             self.dev.timeout = timeout
         else: #usb
-            if port.startswith('USB') is False: #pick the first usb device
-                self.dev = usb.core.find(idVendor=0xffff, idProduct=0xfa2f, backend=self.backend)
-            else:
-                nouse,vid,pid,addr,bus,p = port.split('#')
-                self.dev = usb.core.find(custom_match = lambda d: d.idProduct==int(pid.split('_')[1],16) and d.idVendor==int(vid.split('_')[1],16) and d.address==int(addr,16), backend=self.backend)
+            print("wait for USB device ...", end = '\r')
+            start = time.time()
+            while time.time() - start < timeout:
+                if port.lower() == 'usb': #pick the first usb device
+                    self.dev = usb.core.find(idVendor=0xffff, idProduct=0xfa2f, backend=self.backend)
+                else:
+                    nouse,vid,pid,addr,bus,p = port.split('#')
+                    self.dev = usb.core.find(custom_match = lambda d: d.idProduct==int(pid.split('_')[1],16) and d.idVendor==int(vid.split('_')[1],16) and d.address==int(addr,16), backend=self.backend)
+                if self.dev is not None:
+                    time.sleep(0.5)
+                    break
+                time.sleep(0.2)
 
         return self.dev
 
     def close(self):
+        if self.dev is None: return
         if self.dev_type == 0: #uart
             self.dev.close()
         else: #usb
             usb.util.dispose_resources(self.dev)
+        self.dev = None
+
+    def reopen(self):
+        self.close()
+        self.open(self.port, self.timeout, self.config)
+
+def list_jlink():
+    import pylink
+    jlink = pylink.JLink()
+    for x in jlink.connected_emulators():
+        print(x)
+
+def run_proj_jlink(config, mod, port, counter, user_data):
+    verify = config.getboolean('options', 'verify', fallback=False)
+    family = config.get('main', 'family', fallback='ing918')
+
+    serial_no = port[6:] if port.startswith('jlink#') else None
+
+    # some options are not supported
+    if config.getboolean('options', 'protection.enabled'):
+        print('WARNING: unsupported function: protection')
+    if config.getboolean('options', 'set-entry'):
+        if family == 'ing918':
+            print('WARNING: unsupported function: set entry for ing918')
+
+    def jlink_on_progress(action, progress_string, percentage):
+        printProgressBar(percentage, 100, action.decode(), auto_nl = False)
+
+    import pylink
+    jlink = pylink.JLink()
+    jlink.open(serial_no=serial_no)
+    jlink.set_tif(pylink.enums.JLinkInterfaces.SWD)
+    jlink.disable_dialog_boxes()
+
+    global SCRIPT_MOD
+    SCRIPT_MOD = mod
+    batch_counter = counter
+    if batch_counter < 0:
+        batch_counter = config.getint('options', 'batch.current')
+
+    if call_on_batch(SCRIPT_MOD, batch_counter):
+        return 10
+
+    if family == 'ing918':
+        jlink.connect('ING9188xx')
+    elif family == 'ing916':
+        jlink.connect('ING9168xx')
+    else:
+        raise ValueError("Invalid device type")
+
+    if not jlink.target_connected():
+        raise ConnectionError("Failed to connect to target")
+
+    for i in range(6):
+        bcfg = dict(config.items('bin-' + str(i)))
+        if bcfg['checked'] != '1':
+            continue
+
+        addr = int(bcfg['address'])
+
+        if addr >= RAM_BASE_ADDR:
+            raise Exception('unsupported function: download to RAM')
+
+        print('downloading {} @ {:#x} ...'.format(bcfg['filename'], addr))
+        data = open(bcfg['filename'], "rb").read()
+        abort, new_data = call_on_file(SCRIPT_MOD, batch_counter, i + 1, data, user_data)
+        if abort:
+            return 10
+
+        jlink.flash(new_data, addr, on_progress=jlink_on_progress)
+        print()
+
+    if config.getboolean('options', 'launch'):
+        jlink.reset()
+
+    jlink.close()
+    return 0
 
 def run_proj(proj: str, go = False, port = '', timeout = 5, counter = -1, user_data = ''):
     mod = None
@@ -222,10 +325,17 @@ def run_proj(proj: str, go = False, port = '', timeout = 5, counter = -1, user_d
     if config.getboolean('options', 'usescript'):
         mod = load_mod(config.get('options', 'script'))
 
-    d = device(port, timeout, dict(config.items('uart')))
+    port_cfg = dict(config.items('uart'))
+    if port == '':
+        port = port_cfg['port']
+
+    if port.lower().startswith('jlink'):
+        return run_proj_jlink(config, mod, port, counter, user_data)
+
+    d = device(port, timeout, port_cfg)
 
     if d.dev is None:
-        return 1
+        raise Exception('port not available')
 
     try:
         family = config.get('main', 'family', fallback='ing918')
@@ -234,6 +344,10 @@ def run_proj(proj: str, go = False, port = '', timeout = 5, counter = -1, user_d
             r = icsdw918.do_run(mod, d.dev, config, go, timeout, counter, user_data)
         elif family == 'ing916':
             import icsdw916
+            r = icsdw916.do_run(mod, d, config, go, timeout, counter, user_data)
+        elif family == 'ing20':
+            import icsdw916
+            icsdw916.BOOT_HELLO = b'UartBurnStart920\n'
             r = icsdw916.do_run(mod, d, config, go, timeout, counter, user_data)
         else:
             raise Exception('unknown chip family: ' + family)
@@ -255,12 +369,62 @@ def format_exception(e):
 
     return exception_str
 
+def download_through_jlink(file_url, addr, family, loop, serial_no: str):
+    import pylink, urllib
+    import urllib.request
+
+    def get_file_content(url: str) -> bytes:
+        if url.startswith('http://') or url.startswith('https://'):
+            with urllib.request.urlopen(url) as f:
+                return f.read()
+        else:
+            with open(url, 'rb') as f:
+                return f.read()
+
+    def download(data, addr, family, serial_no):
+
+        def jlink_on_progress(action, progress_string, percentage):
+            printProgressBar(percentage, 100, action.decode(), auto_nl = False)
+
+        jlink = pylink.JLink()
+        jlink.open(serial_no=serial_no)
+        jlink.set_tif(pylink.enums.JLinkInterfaces.SWD)
+        jlink.disable_dialog_boxes()
+
+        if family == 'ing918':
+            jlink.connect('ING9188xx')
+        elif family == 'ing916':
+            jlink.connect('ING9168xx')
+        else:
+            raise ValueError("Invalid device type")
+
+        jlink.reset()
+
+        if not jlink.target_connected():
+            raise ConnectionError("Failed to connect to target")
+
+        jlink.flash(data, addr, on_progress=jlink_on_progress)
+        print()
+
+        jlink.reset()
+        jlink.close()
+
+    if serial_no == '':
+        serial_no = None
+    cnt = 0
+    while True:
+        cnt = cnt + 1
+        download(get_file_content(file_url), addr, family, serial_no)
+        if not loop: break
+        print(f'(#{cnt}) press Enter to download again', end='')
+        input()
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'proj',
         type=str,
-        help='Location of project file (.ini).')
+        help='Location of project file (.ini), or a .bin file.')
 
     parser.add_argument(
         '--go',
@@ -303,15 +467,48 @@ def parse_args():
         default='',
         help='User data.')
 
+    parser.add_argument(
+        '--addr',
+        type=lambda x: int(x, 0),
+        default=0x2027000,
+        help='Download address for .bin file or URL')
+
+    parser.add_argument(
+        '--family',
+        type=str,
+        default='ing916',
+        help='Chip family.')
+
+    parser.add_argument(
+        '--loop',
+        type=bool,
+        default=False,
+        nargs='?',
+        const=True,
+        help='Downloading (.bin file or URL file) again and again.')
+
     return parser.parse_known_args()
 
 if __name__ == '__main__':
 
     FLAGS, unparsed = parse_args()
 
+    if FLAGS.proj == 'list-usb':
+        device.query_all_active_usb_ports()
+        sys.exit(0)
+
+    if FLAGS.proj == 'list-jlink':
+        list_jlink()
+        sys.exit(0)
+
     try:
-        r = run_proj(FLAGS.proj, FLAGS.go, FLAGS.port, FLAGS.timeout, FLAGS.counter, FLAGS.user_data)
-        sys.exit(r)
+        if FLAGS.proj.endswith('.ini'):
+            r = run_proj(FLAGS.proj, FLAGS.go, FLAGS.port, FLAGS.timeout, FLAGS.counter, FLAGS.user_data)
+            sys.exit(r)
+        elif FLAGS.proj.endswith('.bin'):
+            download_through_jlink(FLAGS.proj, FLAGS.addr, FLAGS.family, FLAGS.loop, FLAGS.port)
+        else:
+            raise Exception(f"supported project file: {FLAGS.proj}")
     except Exception as e:
         print("Exception: ", e)
         print("")

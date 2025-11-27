@@ -199,6 +199,7 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
         switch (hci_event_le_meta_get_subevent_code(packet))
         {
         case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE:
+        case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE_V2:
             ota_connected();
             att_set_db(decode_hci_le_meta_event(packet, le_meta_event_enh_create_conn_complete_t)->handle,
                        att_db_util_get_address());
@@ -287,6 +288,8 @@ uint8_t *init_service()
     return att_db_util_get_address();
 }
 
+#ifndef SIMULATION
+
 #define I2C_SCL         GIO_GPIO_10
 #define I2C_SDA         GIO_GPIO_11
 
@@ -301,6 +304,14 @@ void setup_peripherals_i2c_pin(void)
     PINCTRL_SetPadMux(11, IO_SOURCE_I2C0_SDO);
     PINCTRL_SelI2cSclIn(I2C_PORT, 10);
 #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+    SYSCTRL_ClearClkGateMulti(    (1 << SYSCTRL_ITEM_APB_I2C0)
+                                  | (1 << SYSCTRL_ITEM_APB_SysCtrl)
+                                  | (1 << SYSCTRL_ITEM_APB_PinCtrl)
+                                  | (1 << SYSCTRL_ITEM_APB_GPIO1)
+                                  | (1 << SYSCTRL_ITEM_APB_GPIO0));
+
+    PINCTRL_SelI2cIn(I2C_PORT_0, I2C_SCL, I2C_SDA);
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
     SYSCTRL_ClearClkGateMulti(    (1 << SYSCTRL_ITEM_APB_I2C0)
                                   | (1 << SYSCTRL_ITEM_APB_SysCtrl)
                                   | (1 << SYSCTRL_ITEM_APB_PinCtrl)
@@ -325,6 +336,8 @@ void setup_peripherals_i2c(void)
 #endif
     i2c_init(I2C_PORT_0);
 }
+
+#endif
 
 uint32_t setup_profile(void *data, void *user_data)
 {

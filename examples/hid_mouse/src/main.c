@@ -98,6 +98,7 @@ void setup_peripherals(void)
     config_uart(OSC_CLK_FREQ, 115200);
 
     SYSCTRL_ClearClkGateMulti(  (1 << SYSCTRL_ClkGate_APB_GPIO0)
+                              | (1 << SYSCTRL_ClkGate_APB_GPIO1)
                               | (1 << SYSCTRL_ClkGate_APB_TMR1)
                               | (1 << SYSCTRL_ClkGate_APB_PinCtrl)
                               | (1 << SYSCTRL_ClkGate_APB_PWM));
@@ -119,14 +120,14 @@ void setup_peripherals(void)
 
     PINCTRL_SetPadMux(LED_PIN, IO_SOURCE_GENERAL);
     PINCTRL_SetGeneralPadMode(LED_PIN, IO_MODE_PWM, LED_PWM_CH, 1);
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#elif ((INGCHIPS_FAMILY == INGCHIPS_FAMILY_916) || (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20))
     // setup channel 0 of timer 1: 10Hz
     TMR_SetOpMode(APB_TMR1, 0, TMR_CTL_OP_MODE_32BIT_TIMER_x1, TMR_CLK_MODE_APB, 0);
     TMR_SetReload(APB_TMR1, 0, TMR_GetClk(APB_TMR1, 0) / 10);
     TMR_Enable(APB_TMR1, 0, 0xf);
     TMR_IntEnable(APB_TMR1, 0, 0xf);
 
-    PINCTRL_Pull(IO_SOURCE_GPIO, PINCTRL_PULL_UP);
+    PINCTRL_Pull(KEY_PIN, PINCTRL_PULL_UP);
 
     PINCTRL_SetPadMux(LED_PIN, IO_SOURCE_PWM0_A);
 #else
@@ -138,7 +139,7 @@ uint32_t timer_isr(void *user_data)
 {
 #if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_918)
     TMR_IntClr(APB_TMR1);
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#elif ((INGCHIPS_FAMILY == INGCHIPS_FAMILY_916) || (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20))
     TMR_IntClr(APB_TMR1, 0, 0xf);
 #else
     #error unknown or unsupported chip family
@@ -152,6 +153,8 @@ uint32_t timer_isr(void *user_data)
 #define DB_FLASH_ADDRESS  0x42000
 #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
 #define DB_FLASH_ADDRESS  0x2042000
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+#define DB_FLASH_ADDRESS  0x203F000
 #else
 #error unknown or unsupported chip family
 #endif
@@ -170,6 +173,7 @@ int read_from_flash(void *db, const int max_size)
 }
 
 #if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#ifndef SIMULATION
 // make sure that PClk is <= slow_clk
 static void QDEC_PclkCfg(void)
 {
@@ -182,12 +186,11 @@ static void QDEC_PclkCfg(void)
         SYSCTRL_SetPClkDiv(div);
     else;               // ERROR
 }
+
 static void QDEC_Setup(void)
 {
     uint8_t div = SYSCTRL_GetPClkDiv();
     SYSCTRL_ClearClkGate(SYSCTRL_ITEM_APB_QDEC);
-    SYSCTRL_ReleaseBlock(SYSCTRL_ITEM_APB_PinCtrl |
-                         SYSCTRL_ITEM_APB_QDEC);
     PINCTRL_SelQDECIn(21, 22);
 
     SYSCTRL_SelectQDECClk(SYSCTRL_CLK_SLOW, 25);
@@ -204,6 +207,7 @@ static void QDEC_Setup(void)
     SYSCTRL_SetPClkDiv(div);
 }
 #endif
+#endif
 
 extern void on_key_event(key_press_event_t evt);
 
@@ -218,8 +222,6 @@ int app_main()
     platform_set_irq_callback(PLATFORM_CB_IRQ_TIMER1, timer_isr, NULL);
     setup_peripherals();
 
-    // platform_config(PLATFORM_CFG_LOG_HCI, PLATFORM_CFG_ENABLE);
-
     platform_set_evt_callback(PLATFORM_CB_EVT_PUTC, (f_platform_evt_cb)cb_putc, NULL);
     platform_set_evt_callback(PLATFORM_CB_EVT_HARD_FAULT, (f_platform_evt_cb)cb_hard_fault, NULL);
 
@@ -232,7 +234,7 @@ int app_main()
     trace_rtt_init(&trace_ctx);
     platform_set_evt_callback(PLATFORM_CB_EVT_TRACE, (f_platform_evt_cb)cb_trace_rtt, &trace_ctx);
     platform_config(PLATFORM_CFG_TRACE_MASK, 0xfff);
-#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#if (!defined SIMULATION) && (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
     QDEC_Setup();
 #endif
 

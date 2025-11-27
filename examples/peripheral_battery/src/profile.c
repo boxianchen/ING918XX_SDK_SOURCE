@@ -31,7 +31,7 @@ static uint8_t profile_data[] = {
     #include "../data/gatt.profile"
 };
 
-static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t offset, 
+static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t offset,
                                   uint8_t * buffer, uint16_t buffer_size)
 {
     switch (att_handle)
@@ -44,7 +44,7 @@ static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t a
 
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 
-static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode, 
+static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode,
                               uint16_t offset, const uint8_t *buffer, uint16_t buffer_size)
 {
     switch (att_handle)
@@ -84,7 +84,7 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
             break;
 
         gap_set_adv_set_random_addr(0, rand_addr);
-        gap_set_ext_adv_para(0, 
+        gap_set_ext_adv_para(0,
                                 CONNECTABLE_ADV_BIT | SCANNABLE_ADV_BIT | LEGACY_PDU_BIT,
                                 0x00a1, 0x00a1,            // Primary_Advertising_Interval_Min, Primary_Advertising_Interval_Max
                                 PRIMARY_ADV_ALL_CHANNELS,  // Primary_Advertising_Channel_Map
@@ -107,6 +107,7 @@ static void user_packet_handler(uint8_t packet_type, uint16_t channel, const uin
         switch (hci_event_le_meta_get_subevent_code(packet))
         {
         case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE:
+        case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE_V2:
             att_set_db(decode_hci_le_meta_event(packet, le_meta_event_enh_create_conn_complete_t)->handle,
                        profile_data);
             break;
@@ -145,7 +146,7 @@ uint16_t read_adc(uint8_t channel)
     SYSCTRL_WaitForLDO();
 
     ADC_Reset();
-    ADC_PowerCtrl(1);    
+    ADC_PowerCtrl(1);
 
     ADC_SetClkSel(ADC_CLK_EN | ADC_CLK_128);
     ADC_SetMode(ADC_MODE_LOOP);
@@ -165,8 +166,25 @@ uint16_t read_adc(uint8_t channel)
 
     return adc_calibrate(ADC_SAMPLE_MODE_SLOW, channel, voltage);
 #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
-    ADC_ConvCfg(CONTINUES_MODE, PGA_GAIN_2, 1, (SADC_channelId)channel, AVE_NUM, 0, 
+    ADC_ConvCfg(CONTINUES_MODE, PGA_PARA_1, 1, (SADC_channelId)channel, AVE_NUM, 0,
         SINGLE_END_MODE, LOOP_DELAY(ADC_CLK_MHZ, SAMPLERATE, ADC_CH_NUM));
+    ADC_AveInit();
+    ADC_Start(1);
+    while (!ADC_GetIntStatus()) ;
+    ADC_Start(0);
+    ADC_EnableChannel((SADC_channelId)channel, 0);
+    ADC_IntEnable(0);
+    uint32_t data;
+    uint16_t sample;
+    while (!ADC_GetFifoEmpty()) {
+        data = ADC_PopFifoData();
+        sample = ADC_GetAveData(data);
+    }
+    ADC_AveDisable();
+    return sample;
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+    ADC_Reset();
+    ADC_ConvCfg(CONTINUES_MODE, (SADC_channelId)channel, AVE_NUM, 0, LOOP_DELAY(ADC_CLK_MHZ, SAMPLERATE, ADC_CH_NUM));
     ADC_AveInit();
     ADC_Start(1);
     while (!ADC_GetIntStatus()) ;
@@ -198,7 +216,7 @@ static void battery_task(void *pdata)
     {
         vTaskDelayUntil(&xPreviousWakeTime, AccurateMS_TO_TICKS(900));
 
-#ifndef SIMULATION        
+#ifndef SIMULATION
         printf("U = %d", read_adc(ADC_CHANNEL));
 #else
         voltage = 800 + rand() % 200;
@@ -211,7 +229,7 @@ static void battery_task(void *pdata)
             *battery_level = (uint32_t)(voltage - MIN_VOLT) * 100 / (MAX_VOLT - MIN_VOLT);
         else
             *battery_level = 0;
-        
+
         // add a random delay. see how ADC is sampled at fixed intervals.
         vTaskDelay(pdMS_TO_TICKS(100 + (platform_rand() & 0xf) * 10));
     }
@@ -235,8 +253,8 @@ static void battery_task(void *pdata)
         BaseType_t r = xSemaphoreTake(sem_battery,  portMAX_DELAY);
         if (r != pdTRUE)
             continue;
-            
-#ifndef SIMULATION        
+
+#ifndef SIMULATION
         printf("U = %d\n", read_adc(ADC_CHANNEL));
 #else
         voltage = 800 + rand() % 200;
@@ -259,6 +277,8 @@ uint32_t timer_isr(void *user_data)
     TMR_IntClr(APB_TMR1);
 #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
     TMR_IntClr(APB_TMR1, 0, 0xf);
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+    TMR_IntClr(APB_TMR1, 0, 0xf);
 #else
     #error unknown or unsupported chip family
 #endif
@@ -274,7 +294,7 @@ uint32_t setup_profile(void *data, void *user_data)
     battery_level = profile_data + HANDLE_BATTERY_LEVEL_OFFSET;
 
 #ifdef DEMO_TASK_DELAY_UNTIL
-    platform_32k_rc_auto_tune();
+    platform_rt_rc_auto_tune();
     vUpdateTicksClockFrequency();
 #else
     sem_battery = xSemaphoreCreateBinary();

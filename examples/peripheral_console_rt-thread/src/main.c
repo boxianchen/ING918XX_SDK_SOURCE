@@ -11,12 +11,12 @@
 #endif
 
 #if (INGCHIPS_FAMILY != INGCHIPS_FAMILY_918)
-#error WIP: Porting to ING916
+#error WIP: Porting to other chips
 #endif
 
 extern const gen_os_driver_t *os_impl_get_driver(void);
 
-#include "../../peripheral_console/src/main_shared.inc"
+#include "../../peripheral_console/src/main_shared.c"
 
 int app_main()
 {
@@ -26,8 +26,6 @@ int app_main()
 #elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
     platform_config(PLATFORM_CFG_DEEP_SLEEP_TIME_REDUCTION, 4500);
 #endif
-
-    platform_config(PLATFORM_CFG_POWER_SAVING, 0);
 
     return (uintptr_t)os_impl_get_driver();
 }

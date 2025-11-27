@@ -1,23 +1,17 @@
-import sys
 import ctypes
 import logging
 import argparse
 import time
+import struct
+from datetime import datetime
 
-import colorama
-from colorama import (Fore, Style)
 import logging
-from shutil import get_terminal_size
-from typing import (IO, Optional)
 
 import pyocd.utility.color_log
 from pyocd.core.helpers import ConnectHelper
-from pyocd.core.memory_map import MemoryMap, MemoryRegion, MemoryType
 from pyocd.core.soc_target import SoCTarget
-from pyocd.utility.cmdline import convert_session_options, int_base_0
 from pyocd.probe import aggregator
 from pyocd.utility.kbhit import KBHit
-from pyocd.utility.color_log import ColorFormatter
 
 from ctypes import Structure, c_char, c_int32, c_uint32, sizeof
 
@@ -62,8 +56,9 @@ def get_default_probe_id():
     if len(daplinks) == 1:
         return daplinks[0].unique_id
 
-    LOG.info("Multiple DAP-Link found. Use -Id .. to specify one:\n")
-    LOG.info(list(daplinks.keys()))
+    LOG.info("Multiple DAP-Link found. Use -ID .. to specify one:\n")
+    for prob in daplinks:
+        LOG.info(prob.unique_id)
 
     exit(-2)
 
@@ -92,6 +87,15 @@ def find_rtt_ctx(FLAGS, dap):
         remain -= 512
 
     raise Exception(f"SEGGER RTT not found in specified range")
+
+def make_file_header(pre_size: int):
+    now = datetime.now()
+    milliseconds_since_midnight = int((now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() * 1000)
+    padded1 = bytearray(b'\xff' * 8)
+    padded1[1::2] = struct.pack('<I', milliseconds_since_midnight)
+    padded2 = bytearray(b'\xff' * 8)
+    padded2[1::2] = struct.pack('<I', pre_size)
+    return b'\xff\x54\xff\x52\xff\x41\xFF\x01' + bytes(padded1) + bytes(padded2)
 
 def run(FLAGS):
     pyocd.utility.color_log.build_color_logger(color_setting='auto')
@@ -139,35 +143,66 @@ def run(FLAGS):
             total_size = 0
             block_size = 0
             last_time = time.time()
+            error_count = 0
+            MAX_ERRORS = 10
 
-            while True:
-                # read data from up buffers (target -> host)
+            def is_rtt_empty():
+                data = target.read_memory_block8(up_addr, sizeof(SEGGER_RTT_BUFFER_UP))
+                up = SEGGER_RTT_BUFFER_UP.from_buffer(bytearray(data))
+                return up.WrOff == up.RdOff
+
+            def read_up_channel() -> bytes:
+                nonlocal error_count, MAX_ERRORS, up_addr
+
                 data = target.read_memory_block8(up_addr, sizeof(SEGGER_RTT_BUFFER_UP))
                 up = SEGGER_RTT_BUFFER_UP.from_buffer(bytearray(data))
 
                 if up.WrOff == up.RdOff:
+                    return bytes([])
+
+                # Validate buffer pointers
+                if up.WrOff >= up.SizeOfBuffer or up.RdOff >= up.SizeOfBuffer:
+                    error_count += 1
+                    return bytes([])
+
+                if up.WrOff > up.RdOff:
+                    # Normal case - read contiguous block
+                    read_size = up.WrOff - up.RdOff
+                    data = target.read_memory_block8(up.pBuffer + up.RdOff, read_size)
+
+                elif up.WrOff < up.RdOff:
+                    # Wrap-around case
+                    first_part = up.SizeOfBuffer - up.RdOff
+                    data = target.read_memory_block8(up.pBuffer + up.RdOff, first_part)
+
+                    second_part = up.WrOff
+                    if second_part > 0:
+                        data += target.read_memory_block8(up.pBuffer, second_part)
+
+                target.write_memory(up_addr + SEGGER_RTT_BUFFER_UP.RdOff.offset, up.WrOff)
+                return bytes(data)
+
+            data = read_up_channel()
+            while is_rtt_empty():
+                time.sleep(0.01)
+
+            log_file.write(make_file_header(len(data)))
+            log_file.write(data)
+
+            while True:
+                data = read_up_channel()
+                if len(data) == 0:
+                    if error_count > MAX_ERRORS:
+                        LOG.error("too many errors, abort...")
+                        break
                     if kb.kbhit():
                         LOG.info("Abort...")
                         break
-
-                if up.WrOff > up.RdOff:
-                    """
-                    |oooooo|xxxxxxxxxxxx|oooooo|
-                    0    rdOff        WrOff    SizeOfBuffer
-                    """
-                    data = target.read_memory_block8(up.pBuffer + up.RdOff, up.WrOff - up.RdOff)
-                    target.write_memory(up_addr + SEGGER_RTT_BUFFER_UP.RdOff.offset, up.WrOff)
-
-                elif up.WrOff < up.RdOff:
-                    """
-                    |xxxxxx|oooooooooooo|xxxxxx|
-                    0    WrOff        RdOff    SizeOfBuffer
-                    """
-                    data = target.read_memory_block8(up.pBuffer + up.RdOff, up.SizeOfBuffer - up.RdOff)
-                    data += target.read_memory_block8(up.pBuffer, up.WrOff)
-                    target.write_memory(up_addr + SEGGER_RTT_BUFFER_UP.RdOff.offset, up.WrOff)
+                    time.sleep(0.001)  # Short delay to prevent busy waiting
+                    continue
 
                 log_file.write(bytes(data))
+                error_count = 0  # Reset error counter on successful read
 
                 s = len(data)
                 block_size += s
@@ -186,7 +221,6 @@ def run(FLAGS):
             session.close()
         if kb:
             kb.set_normal_term()
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -74,7 +74,7 @@ void PWM_SetHighThreshold(const uint8_t channel_index, const uint8_t multi_duty_
     *reg = threshold;
 }
 
-#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916)
+#elif (INGCHIPS_FAMILY == INGCHIPS_FAMILY_916 || INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
 
 static void PWM_SetRegBit(const uint8_t channel_index, uint32_t addr_offset, const uint8_t offset, const uint8_t v, const uint8_t bit_width)
 {
@@ -86,6 +86,11 @@ static void PWM_SetRegBit(const uint8_t channel_index, uint32_t addr_offset, con
 void PWM_Enable(const uint8_t channel_index, const uint8_t enable)
 {
     PWM_SetRegBit(channel_index, 0x00, 6, enable & 1, 1);
+}
+
+void PWM_SetIntTrigLevel(const uint8_t channel_index, const uint8_t trig_cfg)
+{
+    PWM_SetRegBit(channel_index, 0x00, 12, trig_cfg & 0x7, 3);
 }
 
 void PWM_SetMask(const uint8_t channel_index, const uint8_t mask_a, const uint8_t mask_b)
@@ -100,7 +105,13 @@ void PWM_SetInvertOutput(const uint8_t channel_index, const uint8_t inv_a, const
 
 void PWM_SetMode(const uint8_t channel_index, const PWM_WorkMode_t mode)
 {
+    SYSCTRL_EnablePcapMode(channel_index, mode == PWM_WORK_MODE_PCAP ? 1 : 0);
     PWM_SetRegBit(channel_index, 0x00, 7, mode, 3);
+}
+
+PWM_WorkMode_t PWM_GetMode(const uint8_t channel_index)
+{
+    return (PWM_WorkMode_t)((APB_PWM->Channels[channel_index].Ctrl0 >> 7) & 0x7ul);
 }
 
 void PWM_HaltCtrlEnable2(const uint8_t channel_index, const uint8_t enable_a, const uint8_t enable_b)
@@ -143,7 +154,7 @@ void PWM_DmaEnable(const uint8_t channel_index, uint8_t trig_cfg, uint8_t enable
 
 void PCAP_Enable(const uint8_t channel_index)
 {
-    PWM_SetMode(channel_index, (PWM_WorkMode_t)6);
+    PWM_SetMode(channel_index, PWM_WORK_MODE_PCAP);
     PWM_Enable(channel_index, 1);
 }
 
@@ -169,7 +180,12 @@ uint32_t PCAP_ReadCounter(void)
     return APB_PWM->CapCounter;
 }
 
-void PWM_FifoTriggerEnable(const uint8_t channel_index, uint8_t enable, uint32_t mask)
+void PCAP_ClearFifo(uint8_t channel_index)
+{
+    PWM_SetRegBit(channel_index, 0x00, 15, 1, 1);
+}
+
+void PWM_FifoIntEnable(const uint8_t channel_index, uint8_t enable, uint32_t mask)
 {
     if(enable)
     {
@@ -185,6 +201,83 @@ uint32_t PWM_GetFifoStatus(const uint8_t channel_index)
 {
     return(APB_PWM->Channels[channel_index].Ctrl1);
 }
+#if (INGCHIPS_FAMILY == INGCHIPS_FAMILY_20)
+
+void PWM_SetInitVale(const uint8_t channel,uint8_t vale_a,uint8_t vale_b)
+{
+    PWM_SetRegBit(channel, 0x00, 24, (vale_b << 1) | vale_a, 2);
+}
+
+void PWM_StepEnabled(const uint8_t channel,uint8_t enable)
+{
+    if(enable)
+    {
+        APB_PWM->STEPChannels[channel].step0 |= 0x1U;
+    }
+    else
+    {
+        APB_PWM->STEPChannels[channel].step0 &= ~(0x1U);
+    }
+}
+
+void PWM_StepLoopEnabled(const uint8_t channel,uint8_t enable)
+{
+    uint32_t  mask = (0x1 << 1);
+    if(enable)
+    {
+        APB_PWM->STEPChannels[channel].step0 |= mask;
+    }
+    else
+    {
+        APB_PWM->STEPChannels[channel].step0 &= ~(mask);
+    }
+}
+
+void PWM_SetStepCnt(const uint8_t channel,uint32_t cnt)
+{
+    uint32_t mask = APB_PWM->STEPChannels[channel].step0 & ~(0x3FFFFUL << 2);
+    APB_PWM->STEPChannels[channel].step0 = mask | (cnt << 2);
+}
+
+void PWM_SetStepTarget(const uint8_t channel,uint32_t target)
+{
+    uint32_t mask = APB_PWM->STEPChannels[channel].step1 & ~(0xFFFFFUL);
+    APB_PWM->STEPChannels[channel].step0 = mask | target;
+}
+
+void IR_CycleCarrierSetup(uint8_t channel, uint8_t carry_channel, uint32_t frequency, uint32_t duty)
+{
+    uint32_t pera = PWM_CLOCK_FREQ / frequency;
+    uint32_t high = pera > 1000 ? pera / 100 * (100 - duty) : pera * (100 - duty) / 100;
+    if(carry_channel)
+    {
+        APB_PWM->STEPChannels[channel].step1 = pera;
+        APB_PWM->Channels[channel].DZoneTh = high;
+    }
+    else
+    {
+        APB_PWM->Channels[channel].PeraTh = pera;
+        APB_PWM->Channels[channel].HighTh = high;
+    }
+}
+
+void IR_WriteCarrierData(uint8_t channel, uint32_t data)
+{
+    uint32_t  reg;
+    reg = data &  ((1<<16) - 1);
+    APB_PWM->Channels[channel].DmaData = reg;
+}
+
+uint8_t IR_BusyState(uint8_t channel)
+{
+    uint8_t state;
+
+    state = APB_PWM->Channels[channel].Ctrl1 & (1<<1);
+
+    return state;
+}
+
+#endif
 
 #endif
 

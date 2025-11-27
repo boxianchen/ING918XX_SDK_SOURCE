@@ -132,7 +132,7 @@ void trace_air_send(trace_air_t *ctx);
  ****************************************************************************************
  * @brief Control Flash trace
  *
- * Note: Use this to start/stop trace programmaticaly.
+ * Note: Use this to start/stop trace programmatically.
  *       Default: Disabled.
  *
  * @param[in] ctx                   trace context
@@ -216,10 +216,34 @@ typedef int (* f_trace_puts)(const char *str);
  * @brief dump full memory & registers for later analysis
  *
  * @param[in] f_puts        callback function for print strings (ending with '\n\0', w/o '\n' or '\r')
- * @param[in] size          memory block size (64 or 32)
+ * @param[in] sys_size      size for SYS RAM in KiB
+ *                          For ING918: 64;
+ *                          For ING916:
+ *                              mini, noos_min: 56
+ *                              others: 32
+ * @param[in] share_size    size for SHARE RAM in KiB
+ *                          For ING918: 64;
+ *                          For ING916:
+ *                              mini, noos_min: 8
+ *                              others: 32
+ *
+ *                          These two sizes can be set to 0, then actual size is derived from chip family, which
+ *                          may not work for ING916xx as shown above.
  ****************************************************************************************
  */
-void trace_full_dump(f_trace_puts f_puts, int size);
+void trace_full_dump2(f_trace_puts f_puts, int sys_size, int share_size);
+
+#define trace_full_dump(f_puts, size)  trace_full_dump2(f_puts, size, size)
+
+/**
+ ****************************************************************************************
+ * @brief `printf` version of `platform_trace_raw`
+ *
+ * @param[in] fmt       format-control string
+ * @param[in] ...       Optional arguments to be formatted
+ ****************************************************************************************
+ */
+void platform_trace_raw_printf(const void *fmt, ...);
 
 #ifdef __cplusplus
 }
